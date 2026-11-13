@@ -1,0 +1,37 @@
+{
+  "$schema": "https://beepboop.kjanat.dev/schema/v1.json",
+  "streams": {
+    "main": {
+      "packages": [
+        "pkg:cargo/fujo-error",
+        "pkg:cargo/fujo-core",
+        "pkg:cargo/fujo-output",
+        "pkg:cargo/fujo-complete",
+        "pkg:cargo/fujo"
+      ],
+      "versionScope": "one-for-stream",
+      "mustPublish": [
+        "pkg:cargo/fujo-error",
+        "pkg:cargo/fujo-core",
+        "pkg:cargo/fujo-output",
+        "pkg:cargo/fujo-complete",
+        "pkg:cargo/fujo"
+      ],
+      "workflows": {
+        "publish": {
+          "file": "publish.yml",
+          "mode": "observe",
+          "ref": "refs/tags/v*",
+          "publications": [
+            "pkg:cargo/fujo-error",
+            "pkg:cargo/fujo-core",
+            "pkg:cargo/fujo-output",
+            "pkg:cargo/fujo-complete",
+            "pkg:cargo/fujo"
+          ]
+        }
+      }
+    }
+  },
+  "managers": ["cargo", "workflow"]
+}
