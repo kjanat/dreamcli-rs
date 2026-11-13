@@ -12,6 +12,16 @@ license.workspace      = true
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+default           = ["completion", "terminal-activity", "terminal-prompts"]
+chrono            = ["fujo-core/chrono"]
+completion        = ["dep:fujo-complete"]
+regex             = ["fujo-core/regex"]
+shell-tests       = ["completion"]
+terminal-activity = ["fujo-output/terminal-activity"]
+terminal-prompts  = ["dep:rpassword"]
+url               = ["fujo-core/url"]
+
 [[example]]
 name              = "greet"
 required-features = ["completion"]
@@ -55,16 +65,6 @@ serde_json.workspace  = true
 [dev-dependencies]
 tempfile.workspace = true
 tokio              = { version = "1", features = ["macros", "rt", "sync", "time"] }
-
-[features]
-default           = ["completion", "terminal-activity", "terminal-prompts"]
-chrono            = ["fujo-core/chrono"]
-completion        = ["dep:fujo-complete"]
-regex             = ["fujo-core/regex"]
-shell-tests       = ["completion"]
-terminal-activity = ["fujo-output/terminal-activity"]
-terminal-prompts  = ["dep:rpassword"]
-url               = ["fujo-core/url"]
 
 [lints]
 workspace = true

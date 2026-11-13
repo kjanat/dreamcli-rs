@@ -9,15 +9,15 @@ readme.workspace       = true
 repository.workspace   = true
 license.workspace      = true
 
+[features]
+default           = ["terminal-activity"]
+terminal-activity = []
+
 [dependencies]
 fujo-error.workspace    = true
 serde.workspace         = true
 serde_json.workspace    = true
 unicode-width.workspace = true
-
-[features]
-default           = ["terminal-activity"]
-terminal-activity = []
 
 [lints]
 workspace = true
