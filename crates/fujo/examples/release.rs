@@ -48,7 +48,7 @@ pub fn app() -> Cli {
         );
     let (ask_publish, ask_token) = (publish.clone(), token.clone());
     let plan = Command::new("plan")
-        .describe("Compute the next version and validate a release plan")
+        .describe("Calculate the next version and check the release plan")
         .arg(artifact.clone())
         .flag(version.clone())
         .flag(bump.clone())
@@ -121,7 +121,7 @@ pub fn app() -> Cli {
         });
     Cli::new("shipyard")
         .version(env!("CARGO_PKG_VERSION"))
-        .describe("Typed release planning without publishing")
+        .describe("Plan a release")
         .config(ConfigSettings::new("shipyard"))
         .command(plan)
         .completions()

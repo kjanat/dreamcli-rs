@@ -1,49 +1,47 @@
-# Optional integrations within the existing crates
+# Optional integrations
 
-Status: Implemented for review.
+Status: Implemented.
 
 ## Decision
 
-Keep the five-crate workspace and the integrated resolution contract. The facade
-defaults to `completion`, `terminal-prompts`, and `terminal-activity`, with
-`regex`, `url`, and `chrono` as independent opt-in integrations. Core has no
-default features; standalone output defaults to its terminal backend. Internal
-core/output dependencies disable defaults and forward features explicitly.
-Features only add capabilities, as required by Cargo feature unification.
+Keep the five crates and the existing resolution order. The public crate enables
+`completion`, `terminal-prompts`, and `terminal-activity` by default. `regex`,
+`url`, and `chrono` are optional. Core has no default features; output enables
+its terminal renderer by default. Internal dependencies disable defaults and
+forward features explicitly. Features add capabilities under Cargo's feature
+unification rules.
 
-Gate specialized factories, constraints, and the `Url` and `Date` kinds
-together with their dependencies. A build without a feature cannot declare its
-inputs, so every declared constraint is enforced.
-Use small decimal scanners for duration/size values and a separate ISO shape
-check for Chrono, so neither integration needs the regex feature.
+Gate each integration's factories, constraints, value kinds, and dependencies
+together. A build must support every constraint its API allows applications to
+declare. Duration and byte-size parsers use decimal scanners. Chrono uses a
+separate ISO shape check. Neither needs `regex`.
 
-Move terminal prompts and terminal activities into feature-gated implementation
-modules. Keep `PromptEngine`, scripted answers, spinner/progress handles, logical
-events, and Drop cleanup available in every build. Disabling terminal activities
-removes the timer and renderer, including final activity text. Other output,
-including logs and tables, remains usable. Disabling native prompts leaves the
-resolver's injected prompt stage intact.
+Put terminal prompt and activity implementations in feature-gated modules.
+Keep `PromptEngine`, scripted answers, activity handles, events, and cleanup
+available in all builds. Without `terminal-activity`, handles record events but
+start no timer and draw no output, including final activity messages. Logs and
+tables still work. Without `terminal-prompts`, applications can still inject a
+prompt engine.
 
-Keep Serde and JSON mandatory: config, prompt interchange, codecs, and metadata
-currently share those representations. Schema exports stay available. Do not
-introduce flags for individual resolution stages or a metadata-only crate until
-a consumer demonstrates that need. Output remains independently adoptable without
-the parser; completion's core dependency brings no specialized integrations by
-default. No executor or additional runtime dependency is introduced.
+Serde and JSON remain required for configuration, prompt values, codecs, and
+metadata. Schema exports remain available. Keep resolution stages together until
+a consumer needs separate feature controls or a metadata-only crate. Output can
+be used without the parser. Completion uses core without optional integrations.
 
 ## Verification
 
-The feature checker compiles minimal, default, all-features, and each of the six
-isolated integrations, runs behavior contracts, and asserts normal dependency
-graphs for all targets. It also tests standalone minimal output and completion
-crates. Workspace gates cover default/minimal/all-features tests, strict Clippy,
-docs, live TS fixtures, external completion shells, and real PTY animation.
+The feature checker builds minimal, default, all-feature, and six individual
+feature configurations. It tests behavior and checks normal dependencies across
+all targets. It also tests minimal output and completion builds separately.
+Workspace CI covers tests, Clippy, docs, DreamCLI fixtures, completion shells,
+and terminal animation through a PTY.
 
 ## Consequences
 
-Applications using `.pattern()`, URL factories, or date factories must enable
-the corresponding integration. Release/settings examples require `url`; Cargo
-example metadata makes this explicit. Features are unified by Cargo, so defaults
-disabled by one application dependency may still be enabled by another. Minimal
-builds retain the same input precedence, validation, provenance, middleware,
-typed state, async execution, injected capabilities, and capture semantics.
+Applications must enable `regex`, `url`, or `chrono` to use their factories and
+constraints. Cargo metadata declares `url` as a requirement for the release and
+settings examples. Another dependency can enable features an application has
+disabled locally, because Cargo combines feature requests.
+
+Minimal builds keep input precedence, validation, source records, middleware,
+typed state, async execution, injected capabilities, and output capture.

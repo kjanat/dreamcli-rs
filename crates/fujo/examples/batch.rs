@@ -69,7 +69,7 @@ pub fn app() -> Cli {
     let sources = flag::boolean("sources");
     let plan_label = label.clone();
     let plan = Command::new("plan")
-        .describe("Plan file jobs with native constraints and collision checks")
+        .describe("Plan file operations and check for conflicting targets")
         .arg(inputs.clone())
         .flag(output.clone())
         .flag(mode.clone())
@@ -150,7 +150,7 @@ pub fn app() -> Cli {
         });
     Cli::new("batch")
         .version(env!("CARGO_PKG_VERSION"))
-        .describe("Build a typed file-operation plan")
+        .describe("Plan file operations")
         .flag(label)
         .config(ConfigSettings::new("batch"))
         .command(plan)

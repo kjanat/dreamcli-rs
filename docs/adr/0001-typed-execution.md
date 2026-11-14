@@ -1,15 +1,14 @@
-# Typed command binding and executor-independent async execution
+# Typed commands and async execution
 
-Status: Implemented for review.
+Status: Implemented.
 
 ## Requirements
 
-Handlers need a compile-time connection to their declared inputs and derived
-state. Values must remain native, including borrowed, non-Clone application
-types. Existing commands, config, provenance, plugins, help, completions, and
-injected runtimes must keep working. Async callbacks must borrow their inputs
-across suspension without requiring a framework-selected executor. CI must
-verify portable behavior and live compatibility against a recorded TS revision.
+Handlers must receive the inputs and state declared for their command, with
+compile-time type checks. Inputs can be borrowed, non-Clone Rust values. The
+change must preserve existing parsing, configuration, sources, plugins, help,
+completions, and injected runtimes. Async handlers must borrow inputs across
+awaits and use the application's executor.
 
 ```mermaid
 flowchart LR
@@ -26,57 +25,59 @@ flowchart LR
 
 ## Decision
 
-`Command::inputs` registers a sealed input bundle and retains its type until
-`.action` or `.action_async` binds the handler. Individual inputs and nested
-tuples work without macros. Callbacks receive borrowed native values and a
-`Scope` containing output, metadata, and provenance. Scope has no dynamic input
-or state accessor. Input bundles can be cloned for shared globals: register the
-flag bundle at the CLI root and include it in each typed leaf's bundle. Leaf
-registration guarantees availability independently of runtime propagation.
+`Command::inputs` registers a sealed input bundle and keeps its type until
+`.action` or `.action_async` binds the handler. Single inputs and nested tuples
+work without macros. Callbacks receive borrowed values and a `Scope` for output,
+metadata, and sources. Inputs and state arrive as parameters rather than through
+dynamic lookup.
 
-Typed derives transform owned state `S` into `T`. Earlier state can be retained
-explicitly in a tuple or application struct. This avoids type-map replacement
-and allows local state such as `Rc` without requiring `Send + Sync` on the state
-value. Closure captures remain `Send + Sync` so command definitions remain
-shareable. State is created afresh per invocation and is dropped on failure or
-future cancellation. State cannot borrow invocation inputs: use owned state or
-read the borrowed inputs alongside state in the action.
+Clone a global flag bundle to register it at the CLI root and in each command.
+Each command registers the inputs its handler uses, regardless of runtime flag
+propagation.
 
-Async callbacks use Rust async closures and internally boxed local futures.
-They may borrow context and hold non-Send values across suspension. Async
-continuations are consuming, just like synchronous continuations. The CLI shares
-preparation and result finalization across both execution paths. Filesystem,
-config, prompts, and stdio preparation remain synchronous. Tokio is an example
-and test dependency only; the framework has no executor dependency.
+Typed derivations consume state `S` and return state `T`. Tuples or application
+structs retain earlier values. Each invocation owns its state and drops it on
+failure or cancellation. State can contain `Rc` and other non-Send values.
+Closure captures remain `Send + Sync`, so command definitions can be shared.
+State must own its data; callbacks can read borrowed inputs alongside it.
 
-Synchronous middleware cannot synchronously wrap an awaited continuation.
-Reject that combination before execute hooks or middleware effects and suggest
-`middleware_async`. An async middleware may wrap an entirely synchronous tail;
-synchronous derives work in both execution paths. A sync runner rejects commands
-requiring async execution before execute hooks and derives. Help, version, and
-completion requests still work synchronously without running application code.
+Async callbacks use native async closures and boxed local futures. They can
+borrow context and hold non-Send values across awaits. Each continuation runs
+at most once. Sync and async execution share preparation and result handling.
+Filesystem access, configuration, prompts, and stdio preparation stay synchronous.
+Tokio is used by tests and examples; Fujo requires no executor.
+
+Dynamic synchronous middleware wrapping async work fails before execution hooks
+or middleware run. Use `middleware_async` for that combination. Async middleware
+can wrap synchronous work, and synchronous derives work in either execution mode.
+A synchronous runner rejects async commands before execution hooks and derives.
+Help, version, and completions remain available through synchronous runners.
 
 ## Alternatives and consequences
 
-- Unique handle IDs improve runtime identity but cannot prove registration or
-  state availability. Keep the dynamic API as an explicit alternative.
-- A generic builder accumulating a heterogeneous input list through each `.flag`
-  call would preserve more existing syntax, but selecting arbitrary entries
-  creates more trait and diagnostic complexity. Bound tuples provide a compact,
-  auditable boundary. A named-struct frontend can be added later.
-- Implicit accumulation of arbitrary state types would need indexed products or
-  generated field names. Owned state transformations make retained state explicit.
-- Requiring Send futures would exclude useful local application state and needs
-  additional bounds on lending async closures. Local futures support directly
-  awaiting an invocation; callers cannot spawn those futures on a multithreaded
-  executor's Send-only spawn API.
-- Separate async preparation would duplicate resolution behavior. Sharing it
-  preserves builtin priority, runtime injection, errors, and plugin hooks.
+Unique handle IDs can improve runtime lookup but cannot prove that a command
+registered an input or produced a state value. The dynamic API remains available
+for applications that accept runtime checks.
 
-CI runs core checks on Linux, macOS, and Windows, external shells and PTY tests on
-Linux, and regenerates expectations in memory from the pinned TS checkout.
-Reference checks compare JSON semantically without overwriting recorded files.
-The native lifecycle tests additionally verify plugin failures and cancellation.
-Rust records a failed activity finish on Drop; TS capture omits a framework
-cleanup event after an action error. The lifecycle comparison names this
-difference explicitly and keeps the case in the fixtures.
+A builder that accumulates a heterogeneous list through repeated `.flag()` calls
+would retain more of the existing syntax. Selecting arbitrary list elements would
+require more traits and harder diagnostics. Input bundles make the handler's
+parameters explicit. Named structs extend this model in ADR 0003.
+
+Implicit state accumulation would need indexed products or generated field names.
+Owned state transformations let applications choose which values to retain.
+
+Send futures would exclude local state and require more bounds on lending async
+closures. Local futures can be awaited directly or run in a local task set.
+They cannot use an executor's Send-only spawn method.
+
+Separate async preparation would duplicate resolution logic. Shared preparation
+keeps builtin priority, injected runtimes, errors, and plugin hooks consistent.
+
+## Verification
+
+CI runs core checks on Linux, macOS, and Windows, plus shell and PTY tests on
+Linux. Reference tests compare JSON values from the pinned DreamCLI checkout
+without rewriting fixtures. Rust tests cover plugin failures and cancellation.
+They also check the activity-finish event emitted on drop after an action error,
+which DreamCLI's capture omits.

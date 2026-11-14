@@ -1,6 +1,6 @@
 # Contributing
 
-Use the Rust 1.99 toolchain selected by `rust-toolchain.toml`.
+Use the toolchain pinned in `rust-toolchain.toml`.
 
 ```sh
 cargo fmt --all --check
@@ -12,54 +12,51 @@ python3 scripts/check-features.py
 cargo doc --workspace --all-features --no-deps
 ```
 
-The `shell-tests` feature runs external completion tests. It requires Bash, Zsh,
-Fish, PowerShell (`pwsh`), and Python 3 (`python3`) on PATH. The Zsh line-editor
-checks use Unix PTYs through Python's standard library. Ordinary workspace tests
-use no external shell dependencies. `--all-targets` also compiles and tests the examples; run the
-doctests with ordinary `cargo test` because `--all-targets` excludes them.
+The `shell-tests` feature requires Bash, Zsh, Fish, PowerShell, and Python 3 on
+PATH as `bash`, `zsh`, `fish`, `pwsh`, and `python3`. Zsh line-editor tests use
+Unix PTYs. Tests without `shell-tests` need no external shells. `--all-targets`
+includes examples but excludes doctests, so also run ordinary `cargo test`.
 
-The CI workflow runs these core gates on Linux, macOS, and Windows. A separate
-Linux job installs the completion shells and verifies actual timed PTY frames.
-The feature job checks minimal builds and each isolated integration. Its Python
-checker compiles and tests nine feature configurations, inspects normal dependency
-graphs across all target platforms, and tests standalone output and completion
-crates. Dev dependencies are excluded from the dependency assertions.
-The live-reference job checks out the TS commit recorded by `reference.json`,
-installs its locked dependencies, and checks both fixture generators without
-rewriting their files. The setup action reads `rust-toolchain.toml` so toolchain
-updates do not require editing workflow versions.
+CI runs core checks on Linux, macOS, and Windows. Separate Linux jobs test shell
+completions and terminal frame timing, feature combinations, reference behavior,
+and crate packaging. The feature checker builds nine configurations and checks
+normal dependencies across all targets, excluding development dependencies. It
+also tests the output and completion crates separately.
+
+The reference job checks out the DreamCLI commit recorded in `reference.json`,
+installs its locked dependencies, and checks the fixture generators. The setup
+action reads the Rust version from `rust-toolchain.toml`.
 
 ## Try the examples
 
-The [example CLI guide](crates/fujo/examples/README.md) lists the run and test
-commands for every example. On Unix, verify that the terminal and async build
-examples deliver frames over time through an actual PTY, that logs and tables
-stay intact, and that JSON, quiet, and piped modes contain no animation controls:
+See the [example CLI guide](crates/fujo/examples/README.md) for commands. On Unix,
+check terminal animation through a PTY:
 
 ```sh
 cargo build -p fujo --example terminal --example async_build
 python3 scripts/check-terminal.py target/debug/examples/terminal target/debug/examples/async_build
 ```
 
-The checker uses only Python's standard library. Its optional first argument
-selects the terminal binary; its optional second argument enables checks for
-the async build binary. Explicit paths also support `CARGO_TARGET_DIR`.
+The checker verifies frame timing, logs, tables, and suppression of animation in
+JSON, quiet, and piped output. It uses Python's standard library. The first
+optional argument selects the terminal binary. The second selects the async
+build binary and enables its checks. Pass explicit paths with a custom
+`CARGO_TARGET_DIR`.
 
 ## Reference fixtures
 
-The checked-in `reference.json` records 94 parse/resolution cases generated from
-the sibling TypeScript checkout at the commit stored in the fixture. Tests compare
-values, provenance, error codes, and exit codes. Date formatting and JSON numeric
-representations are normalized while preserving their values.
+`reference.json` contains 94 parsing and resolution cases from the recorded
+DreamCLI revision. Tests compare values, sources, error codes, and exit codes.
+They normalize date formatting and JSON number representations.
 
-`lifecycle.json` records 11 orchestration cases: middleware ordering, short
-circuits, derive/action failures, error transformation, explicit exit codes,
-activity cleanup, JSON output, and unanswered prompts. Its generator requires
-the same reference commit. Rust's Drop finish event is explicitly covered as a
-native difference. Separate native tests cover aborts and dropped futures,
-plugin hooks, writer failures, and typed state ownership.
+`lifecycle.json` contains 11 cases for middleware order, early returns,
+derive and action failures, error replacement, exit codes, activity cleanup,
+JSON output, and unanswered prompts. Both generators require the same reference
+commit. The tests account for Rust's activity-finish event on drop. Separate
+Rust tests cover cancellation, dropped futures, plugin hooks, writer failures,
+and state ownership.
 
-Verify against a live sibling checkout without changing fixtures:
+Check a sibling DreamCLI checkout without changing fixtures:
 
 ```sh
 bun scripts/reference-fixtures.ts --check
@@ -67,8 +64,7 @@ bun scripts/lifecycle-fixtures.ts --check
 cargo test -p fujo --features regex,url,chrono --test reference --test lifecycle_reference
 ```
 
-Regenerate with the TypeScript checkout at `../dreamcli` and its dependencies
-installed:
+To regenerate fixtures, install the dependencies in `../dreamcli`, then run:
 
 ```sh
 bun scripts/reference-fixtures.ts
@@ -76,62 +72,55 @@ bun scripts/lifecycle-fixtures.ts
 cargo test -p fujo --features regex,url,chrono --test reference --test lifecycle_reference
 ```
 
-The generator reads the sibling checkout and writes only this repository's
-fixture. Review differences against the recorded source commit before accepting
-new expectations. Running the normal Rust test suite does not require Bun or the
-TypeScript checkout.
+Generators read the sibling checkout and write Fujo's fixtures. Review changes
+against the recorded source commit before accepting new expectations. Ordinary
+Rust tests use the checked-in fixtures and need neither Bun nor DreamCLI.
 
-Keep OS access in the public crate's `Runtime` implementations. Core resolution
-receives explicit capabilities. Native values live behind typed handles; JSON is
-used for config, prompt interchange, and schema metadata. Keep output independent
-of core parsing and resolution.
+Keep OS access in the public crate's `Runtime` implementations. Pass capabilities
+into core resolution. Store native values behind typed handles and use JSON for
+configuration, prompts, and schema metadata. Keep output independent of parsing
+and resolution.
 
 ## Publishing to crates.io
 
-Pushing a `vVERSION` tag triggers `.github/workflows/publish.yml`. The tag must
-match `[workspace.package].version`, every publishable member's version, and
-its internal dependency requirements. The tagged commit must belong to `master`.
-Stable tags such as `v0.1.0` and prerelease tags such as `v0.2.0-rc.1` both work.
+Beepboop prepares manifest and lockfile updates in a version PR. Merging the PR
+starts publication after its checks pass. `.github/workflows/publish.yml` accepts
+Beepboop dispatches and publishes the five crates in dependency order. After
+publication, Beepboop creates the signed `v<version>` tag.
 
-The workflow runs the full CI suite on the tagged commit, including packaging
-and building all five crates. After those checks pass, Cargo publishes the
-workspace in dependency order: `fujo-error` before `fujo-core` and `fujo-output`,
-then `fujo-complete` after core, and `fujo` last. Publishing runs are serialized
-and an active publication is not cancelled by a newer tag.
+The workflow checks the release version against the workspace, each publishable
+crate, and internal dependency requirements. It checks that the source belongs
+to `master` and matches the commit used by CI. The full CI suite, including
+packaging, must pass before publication. Publishing runs execute one at a time.
 
-Publishing uses GitHub OIDC and `rust-lang/crates-io-auth-action` to obtain a
-short-lived crates.io token. Only the publish job has `id-token: write`; no
-`CARGO_REGISTRY_TOKEN` repository secret is required.
+`rust-lang/crates-io-auth-action` exchanges GitHub OIDC credentials for a
+short-lived crates.io token. Configure a trusted publisher for each crate:
 
-Configure a GitHub trusted publisher on crates.io for each of `fujo-error`,
-`fujo-core`, `fujo-output`, `fujo-complete`, and `fujo`:
+| Setting           | Value         |
+| ----------------- | ------------- |
+| Repository owner  | `kjanat`      |
+| Repository name   | `fujo`        |
+| Workflow filename | `publish.yml` |
+| Environment       | Leave empty   |
 
-- Repository owner: `kjanat`
-- Repository name: `fujo`
-- Workflow filename: `publish.yml`
-- Environment: leave empty (this workflow does not select an environment)
-
-The [crates.io setup guide](https://crates.io/docs/trusted-publishing) describes
-the first-publication prerequisite: publish a new crate once with an API token
-before configuring its trusted publisher. Bootstrap all five crates from the
-reviewed release commit, then configure OIDC for subsequent tagged releases.
-Do not add that bootstrap token to the workflow.
+New crates need an initial publication with an API token before trusted
+publishing can be configured. Publish all five from the reviewed release commit,
+then configure their trusted publishers. Keep the bootstrap token out of the
+workflow. See the [crates.io guide](https://crates.io/docs/trusted-publishing).
 
 Release validation and its tests live in `.github/actions/check-release/`.
-The composite action locates its Python files through `GITHUB_ACTION_PATH`
-and validates the selected Cargo workspace.
+The composite action finds its Python files through `GITHUB_ACTION_PATH` and
+validates the selected Cargo workspace.
 
-For each release:
+For a release, start preparation in Beepboop, review the version PR and its CI,
+then merge it. Check the **Publish crates** run and the resulting registry
+versions. For local validation, run:
 
-1. Update the shared version in `Cargo.toml` and the four internal dependency
-   versions in `[workspace.dependencies]`, then update `Cargo.lock`.
-2. Run `python3 .github/actions/check-release/check-release.py --tag vVERSION` and
-   `cargo publish --workspace --dry-run --locked --all-features --registry crates-io`.
-3. Merge the release changes into `master` and verify CI and the target commit's
-   signature before creating and pushing the matching tag.
-4. Check the **Publish crates** workflow and the published versions on crates.io.
+```sh
+python3 .github/actions/check-release/check-release.py --tag vVERSION
+cargo publish --workspace --dry-run --locked --all-features --registry crates-io
+```
 
-Publication is not atomic across crates. If an upload fails after earlier
-crates were published, inspect the registry state before recovery: existing
-versions cannot be overwritten, and blindly rerunning the whole workspace can
-fail on those versions. Do not move a published release tag.
+Each crate publishes separately. If a run fails, inspect Beepboop's publication
+records and crates.io before retrying. Published versions are immutable. Keep
+release tags on their original commits.

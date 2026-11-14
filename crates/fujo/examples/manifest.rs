@@ -74,7 +74,7 @@ pub fn app() -> Cli {
             })
             .encode_json(|jobs| json!(jobs.get()))
             .json_schema(json!({"type":"integer","minimum":1,"maximum":64}))
-            .describe("Concurrent fingerprint workers"),
+            .describe("Number of concurrent file workers"),
         ignore: flag::array("ignore", value::string().non_empty())
             .separator(',')
             .unique()
@@ -85,7 +85,7 @@ pub fn app() -> Cli {
     };
     let root = arg::path("root")
         .path_checks(PathChecks::directory())
-        .describe("Directory to fingerprint");
+        .describe("Directory to scan");
     let workers = fujo::pipeline(globals.clone())
         .derive(|_, GlobalValues { jobs, .. }, ()| Ok(Arc::new(Semaphore::new(jobs.get()))));
     let scanner = fujo::pipeline(ScanInputs {
@@ -98,7 +98,7 @@ pub fn app() -> Cli {
     })
     .wrap_async(Timed);
     let build = Command::new("build")
-        .describe("Fingerprint every file under a directory into a manifest")
+        .describe("Write a manifest of file paths, sizes, and hashes")
         .example("{bin} . --out manifest.json", "Write a manifest")
         .inputs(BuildInputs {
             globals: globals.clone(),
@@ -146,7 +146,7 @@ pub fn app() -> Cli {
             }
         });
     let verify = Command::new("verify")
-        .describe("Fingerprint a directory again and report drift against its manifest")
+        .describe("Compare files with a saved manifest")
         .example(
             "{bin} . --json",
             "Compare the current directory with manifest.json",
@@ -200,7 +200,7 @@ pub fn app() -> Cli {
         });
     Cli::new("manifest")
         .version(env!("CARGO_PKG_VERSION"))
-        .describe("Fingerprint directories and detect drift")
+        .describe("Hash files and compare directory contents")
         .builtins(Builtins {
             explain: true,
             ..Builtins::default()

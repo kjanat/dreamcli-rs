@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       beepboop_execution_id:
-        description: Beepboop release execution
+        description: Beepboop release execution ID
         type: string
         required: true
       beepboop_title:
-        description: Release title supplied by Beepboop
+        description: Release title
         type: string
         required: false
 permissions:

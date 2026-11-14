@@ -29,7 +29,7 @@ pub fn app() -> Cli {
             }
         });
     let command = Command::new("build")
-        .describe("Simulate a build with typed state and asynchronous waits")
+        .describe("Simulate a build with progress updates")
         .middleware_async(async |ctx, next| {
             ctx.out.status("Starting async build");
             let result = next.run(ctx).await;

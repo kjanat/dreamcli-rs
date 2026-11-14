@@ -1,16 +1,14 @@
-# Named input bundles and typed middleware
+# Named inputs and typed middleware
 
-Status: Implemented for review.
+Status: Implemented.
 
 ## Requirements
 
-Commands with several inputs need field names in their handlers. A named
-frontend must register inputs and fix callback types in the same step as
-`.inputs(...)`, keep the sealed reader boundary, and nest shared globals.
-Middleware on typed commands needs an explicit position relative to derivation,
-defined short-circuit and cleanup behavior, and the existing sync/async rules.
-The manifest example (`crates/fujo/examples/manifest.rs`) exercises both with
-shared globals, two commands, asynchronous fingerprinting, and terminal output.
+Large commands need named handler parameters. Named bundles must register inputs
+and determine callback types together, support nested global flags, and keep
+input readers sealed. Typed middleware needs a defined position among derivations,
+clear ownership on early return, and compile-time sync and async restrictions.
+`crates/fujo/examples/manifest.rs` exercises these features across two commands.
 
 ```mermaid
 flowchart LR
@@ -30,122 +28,131 @@ flowchart LR
     Typed --> AnyAction[action / action_async]
 ```
 
-## Decision
+## Named bundles
 
-`fujo::inputs!` declares a bundle struct and its values struct. Field types are
-input handles, tuples, or other bundles; the macro implements `Bundle`, exposing
-references to its fields as a tuple and mapping that tuple's values into the
-values struct. A blanket `InputSet` implementation visits and reads those fields
-through the private sealed `Shape` trait. The reader seal stays private; the
-macro does not implement or expose it. Field types constrain the handles supplied
-at construction, so a handle of the wrong surface, value type, or presence fails where the struct is
-built. `fujo::flags!` checks that each field implements `FlagSet`; a blanket
-implementation makes bundles flag-only when their tuple shape is flag-only, so
-a positional field is rejected at the declaration. Bundles are `Clone` and value structs are
-`Copy`, so a global bundle registers once at the root and once in each leaf.
+`fujo::inputs!` declares an input struct and a values struct. Fields can be
+handles, tuples, or other bundles. The macro implements `Bundle`, exposes field
+references as a tuple, and maps the resolved tuple into the values struct.
+The blanket `InputSet` implementation reads these through the private sealed
+`Shape` trait. Macros neither implement nor expose that private reader trait.
 
-The macro requires the handle type for each field, such as `Flag<u16, Required>`.
-A derive macro could infer these from construction and would need a proc-macro
-crate; `macro_rules` keeps the workspace free of `syn` and `quote` and keeps
-the declaration explicit.
+Field types check the input kind, value type, and optionality at construction.
+`fujo::flags!` requires every field to implement `FlagSet`, which rejects
+positional arguments at declaration. Bundles implement `Clone`; values structs
+implement `Copy`. A global bundle can be registered at the root and in each
+command.
 
-Typed middleware is a stage. The pipeline runs stages in declaration order; a
-middleware receives by value the state from earlier stages and a continuation
-for every later stage and the action. It hands the state to
-`next.run`, or drops the continuation to short-circuit, which drops the state.
-It regains control with the result of the later stages and may replace it.
-Internally each stage composes continuations: a stage transforms the
-continuation of its output into a continuation of the initial state. Wrapping
-therefore needs no runtime type map, and derived state never enters `Context`.
+Fields require explicit handle types such as `Flag<u16, Required>`. A procedural
+macro would add a crate and parsing dependencies. `macro_rules` supports these
+declarations without adding `syn` or `quote` as workspace implementation
+dependencies.
 
-A synchronous middleware receives a synchronous continuation. The builder
-records this in a third type parameter: after `.middleware()` the command is
-`TypedCommand<I, S, SyncTail>`. Every synchronous method stays available on
-that tail: `then`, `derive`, `map`, `tap`, `wrap`, `middleware`, `catch`,
-`finally`, `retry`, `shared`, `named`, `stages`, and `action`. `then_async`,
-`derive_async`, `tap_async`, `wrap_async`, `middleware_async`, `timeout`,
-`inherit`, and `action_async` exist on `AnyTail` only. `middleware_async`
-keeps `AnyTail`. The dynamic
-`ASYNC_MIDDLEWARE_REQUIRED` runtime check has no typed counterpart at runtime;
-the combination fails to compile. Asynchronous derives followed by a
-synchronous middleware are allowed; the synchronous tail runs inside the
-asynchronous invocation.
+## Middleware and execution order
 
-Dynamic `.middleware()` on `Command` wraps the whole typed pipeline, including
-derivation, and receives `Context`. Typed middleware wraps later typed stages
-and receives `Scope`, the bundle values, and typed state.
+Typed stages run in declaration order. Middleware receives owned state and a
+continuation for every later stage and the action. `next.run(state)` continues
+execution and returns its result. Dropping the continuation skips those stages
+and drops the state. Middleware can inspect or replace the returned result.
 
-Stages are values. `Derive`, `AsyncDerive`, `Middleware`, and `AsyncMiddleware`
-are public traits with blanket implementations for closures of the matching
-shape; `then`, `then_async`, `wrap`, and `wrap_async` accept any implementor.
-A struct that implements a trait generically over the bundle serves every
-command; closures cannot, since each bundle's values type is higher-ranked
-over its lifetime. `derive` and `middleware` keep closure bounds
-so closure parameters stay inferred. `Arc<T>` has no implementation: the
-asynchronous closure traits are not fundamental, and an `Arc` implementation
-overlaps with the closure one.
+Internally, a stage converts a continuation over its output state into one over
+its input state. Typed state therefore stays outside `Context` and needs no
+runtime type map.
 
-`tap`, `map`, `catch`, and `finally` are stages with fixed shapes. `tap` and
-`map` are derives, so they keep the tail type. `catch` and `finally` handle
-both continuation kinds and keep the tail type too; their handlers are
-synchronous. `retry(n)` reruns the later stages with a clone of the state, so
-it requires `S: Clone`; continuations are reference-counted closures internally,
-while `Next` and `AsyncNext` stay one-shot at the surface. `timeout(limit,
-sleep)` races the later stages against an application-supplied timer, since the
-crate owns no runtime; the loser is dropped.
+After synchronous `.middleware()`, the builder has a `SyncTail` marker.
+Synchronous methods remain available: `then`, `derive`, `map`, `tap`, `wrap`,
+`middleware`, `catch`, `finally`, `retry`, `shared`, `named`, `stages`, and `action`.
+`then_async`, `derive_async`, `tap_async`, `wrap_async`, `middleware_async`,
+`timeout`, `inherit`, and `action_async` require `AnyTail`.
 
-The builder is `Chain<C, I, S, M>` with carrier `C`: `Command` for a
-`TypedCommand`, `()` for a `Pipeline`. One method set serves both. `inherit`
-composes a pipeline's stages after the command's own stages declared so far,
-so a pipeline middleware wraps the command's later stages and action. It is
-available while the command's state is `()` and its tail is `AnyTail`; the
-pipeline's state and tail carry over, and the pipeline's inputs are registered
-on the command. Unchanged clones of one input handle carry the same declaration
-identity and register once. Independently constructed same-name inputs conflict,
-even if their native types and visible metadata match: validators and decoders
-can be closures whose equivalence cannot be established. Editing a cloned handle
-creates a distinct declaration. Such conflicts produce `INVALID_SCHEMA` before
-execution; reuse clones of the completed handle to share a declaration. These
-rules also apply to `share` and inherited flags. Internal propagation preserves
-identity and remains enabled when declarations from multiple scopes merge.
+`.middleware_async()` keeps `AnyTail`. A synchronous middleware can follow an
+async derivation, because its remaining stages run synchronously within the
+async invocation. The compiler rejects async stages after a synchronous
+middleware. Dynamic commands check this at runtime with
+`ASYNC_MIDDLEWARE_REQUIRED`.
 
-`Cli::share` and `Command::share` run a pipeline once before dispatch as a
-dynamic step and keep its state in `Context` behind a private slot. A command
-takes it with the `shared` stage while its state is `()`, or anywhere through
-`Scope::shared`. The slot is keyed by the pipeline's identity, so two pipelines
-with the same state type stay apart. The value crosses the type-erased command
-boundary, so it must be `Clone + Send`; every read clones it, and `retry`
-reruns `shared` safely. A missing value, or a pipeline whose middleware
-dropped its continuation, is the runtime error `SHARED_STATE_MISSING`. `share`
-takes flag-only pipelines and registers their flags on the root or group, and a
-group marks them to propagate to its children. A pipeline that inherits another
-pipeline has the inputs `Inherits<I, G>`. Its stages read `I`, and the set is
-flag-only when both `I` and `G` are. A shared pipeline's middleware wraps the
-pipeline only; `inherit` is the form whose middleware wraps the command.
+Dynamic middleware registered on `Command` wraps the entire typed pipeline,
+including derivations, and receives `Context`. Typed middleware receives `Scope`,
+input values, and state, and wraps only the later typed stages.
 
-Every builder records a `StageInfo` per stage: kind, handler type name or
-`named` label, and whether it is asynchronous. `Command::stages()` lists
-dynamic steps first, then typed stages, in execution order; a parent
-contributes only its dynamic steps to a child's listing, since its typed
-stages run inside its own action. `Command::action_info()` records the action
-handler and whether that handler is asynchronous. The `explain` builtin, off by
-default, adds `--explain`, which prints the shared stages of the root and
-groups, then the command's stages and action, or the same as JSON, and runs
-nothing.
+## Reusable stages
+
+`Derive`, `AsyncDerive`, `Middleware`, and `AsyncMiddleware` have blanket
+implementations for matching closures. `then`, `then_async`, `wrap`, and
+`wrap_async` accept any implementation. Structs can implement these traits across
+input bundle types. Closures bind to a particular bundle whose values borrow for
+a callback lifetime. `derive` and `middleware` retain closure bounds for type
+inference.
+
+There is no `Arc<T>` implementation: it would overlap with the async closure
+implementation under Rust's trait coherence rules.
+
+`tap` and `map` are derivations. `catch` and `finally` accept synchronous handlers
+for either kind of continuation. All four preserve the tail marker.
+`retry(n)` clones state and reruns later stages, so it requires `S: Clone`.
+Internal continuations use reference-counted closures, while public `Next` and
+`AsyncNext` each run at most once. `timeout(limit, sleep)` races later stages
+against the application's timer and drops whichever loses.
+
+## Inherited pipelines
+
+`Chain<C, I, S, M>` implements both typed commands and reusable pipelines.
+`C` is `Command` for a typed command and `()` for a pipeline.
+
+`inherit` appends a pipeline after the command's declared stages. Its middleware
+wraps the command's later stages and action. The command must have `()` state
+and `AnyTail`. It takes the pipeline's resulting state and tail marker and
+registers the pipeline's inputs.
+
+Unchanged clones of one handle share a declaration identity and register once.
+Separately constructed inputs with the same name conflict, even if their types
+and visible metadata match. Their validator or decoder closures may differ.
+Editing a clone gives it a new identity. Conflicts fail with `INVALID_SCHEMA`
+before execution. Reuse clones of the completed handle to share a declaration.
+These rules also apply to `share` and inherited flags. Propagation preserves
+identity when declarations from multiple scopes combine.
+
+## Shared pipelines
+
+`Cli::share` and `Command::share` run a pipeline once before dispatch. They store
+its state in a private `Context` slot keyed by pipeline identity, so pipelines
+with the same state type remain separate.
+
+A command reads this state through `.shared()` while its own state is `()`, or
+through `Scope::shared` in a handler. Every read clones the value, which must
+implement `Clone + Send` to cross the command's erased type boundary. `retry`
+can rerun the read. A missing value, including one caused by middleware skipping
+its continuation, produces `SHARED_STATE_MISSING`.
+
+Shared pipelines accept flags only. Root or group registration exposes those
+flags, and groups propagate them to children. A pipeline that inherits another
+has input type `Inherits<I, G>`; its stages read `I`, and the combined set is
+flag-only when both sets are. Shared middleware wraps its own pipeline. Inherited
+middleware also wraps later command stages.
+
+## Stage inspection
+
+Each stage records its kind, handler type name or `.named()` label, and async
+status in `StageInfo`. `Command::stages()` lists dynamic steps before typed
+stages, in execution order. Parent commands contribute dynamic steps only,
+because their typed stages run within their own actions.
+
+`Command::action_info()` describes the action handler. The optional `explain`
+builtin lists shared root and group stages, then command stages and the action.
+It supports JSON output and executes none of those stages.
 
 ## Alternatives and consequences
 
-- Middleware receiving `&S` while the continuation owns the state: later derives
-  consume state by value, so a borrow held across `next.run` would block them.
-  Passing state through keeps the linear ownership model of derives.
-- Restricting typed middleware to wrap only the action: simpler, but a
-  middleware could then wrap no later derivation, such as the manifest
-  example's fingerprinting.
-- Runtime validation of sync/async mixing for typed commands: the type-state
-  costs one marker parameter and removes a class of runtime failures.
-- Friction observed in the manifest example and left in place: `describe`,
-  `example`, and `alias` are `Command` methods, so they precede `.inputs(...)`.
-- `inherit` requires `()` state. A command that derives state before inheriting
-  would need the pipeline to thread that state through, which means a tuple
-  state for every inheritor; the manifest example moves its pre-scan check into
-  a `tap` instead.
+Passing middleware `&S` while its continuation owns `S` would keep a borrow alive
+across later derivations that consume the state. Passing owned state through the
+continuation permits those transformations.
+
+Middleware restricted to the action could not wrap later derivations, such as
+the manifest example's fingerprinting. Declaration-order stages support both.
+
+A tail marker adds one type parameter and catches invalid sync and async
+combinations before runtime.
+
+`describe`, `example`, and `alias` remain `Command` methods and must precede
+`.inputs()`. `inherit` requires `()` state; applications must move earlier state
+work into the inherited pipeline or a suitable stage. The manifest example uses
+`tap` for its pre-scan check.

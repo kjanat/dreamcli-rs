@@ -797,7 +797,7 @@ fn powershell(
     globals: &[GlobalFlag],
     options: ParseOptions,
 ) -> String {
-    // Completion options let us probe empty-result support without registering a command.
+    // Probe empty-result support through options, without registering a command.
     let mut script = format!(
         r#"& {{
   $probe = 'fujo-empty-result-probe '

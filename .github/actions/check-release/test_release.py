@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Release preflight rejects tags and manifests that could publish mixed versions."""
+"""Test that release validation rejects mismatched tags and crate versions."""
 
 import copy
 from pathlib import Path

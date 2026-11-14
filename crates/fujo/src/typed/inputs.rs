@@ -22,9 +22,9 @@ pub(crate) mod sealed {
     }
 }
 
-/// Registered inputs and the native references delivered to a typed callback.
+/// Registered inputs and the references passed to a typed callback.
 /// Implemented for individual inputs, `()`, and tuples of up to twelve sets.
-/// Sealed so a custom reader cannot silently access undeclared inputs.
+/// Sealed to prevent custom readers from accessing undeclared inputs.
 pub trait InputSet: sealed::Sealed + Send + Sync + 'static {
     type Values<'a>;
     #[doc(hidden)]
@@ -145,10 +145,10 @@ tuple!(A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,J:9);
 tuple!(A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,J:9,K:10);
 tuple!(A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,J:9,K:10,L:11);
 
-/// Declare a named input bundle. The first struct holds input handles and is
-/// `Clone`; the second receives their resolved references in typed callbacks.
-/// Each field is any [`InputSet`]: an input handle, a tuple, or another
-/// declared bundle.
+/// Declare a named input bundle. The first struct holds input handles and
+/// implements `Clone`. The second holds references to their resolved values.
+/// Each field accepts an [`InputSet`], such as an input handle, tuple, or
+/// another named bundle.
 ///
 /// ```
 /// use fujo::{Arg, Cli, Command, Flag, Required, arg, flag};
@@ -175,7 +175,7 @@ tuple!(A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,J:9,K:10,L:11);
 /// assert_eq!(result.stdout, "build: src with 4 jobs\n");
 /// ```
 ///
-/// Field types are checked against the handles supplied at construction:
+/// The compiler checks field types against the supplied handles:
 /// ```compile_fail
 /// use fujo::{Arg, flag};
 /// fujo::inputs! { struct Demo => DemoValues { name: Arg<String> } }
@@ -249,7 +249,7 @@ macro_rules! inputs {
 /// assert_eq!(app.execute(["--profile=prod", "show"], Default::default()).stdout, "prod\n");
 /// ```
 ///
-/// A positional argument is rejected:
+/// Positional arguments fail to compile in a flag bundle:
 /// ```compile_fail
 /// use fujo::Arg;
 /// fujo::flags! { struct Globals => GlobalValues { name: Arg<String> } }

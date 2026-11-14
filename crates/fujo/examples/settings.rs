@@ -49,7 +49,7 @@ pub fn app() -> Cli {
             .default(BTreeMap::new());
         let profile = profile.clone();
         Command::new(name)
-            .describe("Resolve, validate, and explain effective settings")
+            .describe("Show settings and where their values came from")
             .flag(port.clone())
             .flag(endpoint.clone())
             .flag(token.clone())
@@ -108,7 +108,7 @@ pub fn app() -> Cli {
         .config(ConfigSettings::new("settings"))
         .command(
             group("config")
-                .describe("Inspect configuration without changing files")
+                .describe("Inspect configuration")
                 .command(show)
                 .command(validate)
                 .command(

@@ -72,9 +72,9 @@ impl<T> Presence<T> for Required {
     }
 }
 
-/// A typed input declaration. Clone a completed handle to reuse it across scopes.
-/// Builder methods create a distinct declaration, so modified clones cannot
-/// silently replace the validation or decoding rules of the original.
+/// An input declaration and its value type. Clone a completed handle to share it.
+/// Builder methods create a new declaration with its own validation and decoding
+/// rules. Registering it alongside the original can produce a name conflict.
 #[derive(Debug)]
 pub struct Input<T, P = Optional, S = FlagMarker> {
     pub(crate) schema: InputSchema,
@@ -101,7 +101,7 @@ impl<T: 'static, P: 'static, S: 'static> Input<T, P, S> {
     }
 }
 impl<T, P, S> Input<T, P, S> {
-    // Editing a cloned handle forks its declaration, including closure-based rules.
+    // An edited clone gets a new declaration, including its validator and decoder.
     fn schema_mut(&mut self) -> &mut InputSchema {
         self.schema.identity = Arc::new(());
         &mut self.schema

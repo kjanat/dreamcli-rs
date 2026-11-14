@@ -1,4 +1,4 @@
-"""Exercise generated completions through Zsh's real line editor and compinit."""
+"""Test generated completions in Zsh's line editor with compinit."""
 
 import json
 import os

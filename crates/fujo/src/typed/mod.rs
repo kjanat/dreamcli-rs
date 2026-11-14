@@ -1,4 +1,4 @@
-//! Command-bound inputs and a typed state transformation pipeline.
+//! Command inputs and stages that transform application state.
 //!
 //! ```
 //! use fujo::{Cli, Command, arg, flag};
@@ -12,8 +12,8 @@
 //! assert!(Cli::new("build").default(command).execute(["."], Default::default()).success());
 //! ```
 //!
-//! Stages run in declaration order. A middleware receives the state derived by
-//! the stages before it and wraps every stage after it, including the action:
+//! Stages run in declaration order. Middleware receives the state from earlier
+//! stages and wraps the remaining stages and action:
 //! ```
 //! use fujo::{Cli, Command, arg};
 //! let command = Command::new("build")
@@ -34,9 +34,8 @@
 //! assert_eq!(result.stdout, "start src\n3\nfinish\n");
 //! ```
 //!
-//! A type implementing [`Middleware`] or [`Derive`] plugs in with `wrap` and
-//! `then`. A [`Pipeline`] plugs into any command with `inherit`, which also
-//! registers the pipeline's inputs on that command:
+//! Use `wrap` for a type implementing [`Middleware`] and `then` for [`Derive`].
+//! Use `inherit` to add a [`Pipeline`] and its inputs to a command:
 //! ```
 //! use fujo::typed::Next;
 //! use fujo::{Cli, Command, InputSet, Middleware, Scope, flag};
@@ -77,9 +76,9 @@
 //! assert_eq!(result.stdout, "counted\ntap CI\n2\n");
 //! ```
 //!
-//! A pipeline registered with `share` runs once before dispatch; commands take
-//! its state with `shared`. `retry` reruns the later stages with a clone of the
-//! state:
+//! Register a pipeline with `share` to run it once before dispatch. Commands
+//! read its state with `shared`. On failure, `retry` reruns the later stages
+//! with a clone of the state:
 //! ```
 //! use fujo::{Cli, Command, flag};
 //! use std::sync::atomic::{AtomicUsize, Ordering};
@@ -127,7 +126,7 @@
 //!     .action(|_, (force, missing), ()| Ok(()));
 //! ```
 //!
-//! State availability comes from the derivation chain:
+//! The preceding stages determine the state type:
 //! ```compile_fail
 //! use fujo::Command;
 //! struct Credentials;
@@ -146,7 +145,7 @@
 //!     .derive(|_, name, ()| Ok(name));
 //! ```
 //!
-//! Asynchronous stages after a synchronous middleware are rejected:
+//! Asynchronous stages cannot follow synchronous middleware:
 //! ```compile_fail
 //! use fujo::Command;
 //! let command = Command::new("demo").inputs(())
@@ -166,8 +165,8 @@
 //!     .middleware_async(async |_, (), state, next| next.run(state).await);
 //! ```
 //!
-//! A pipeline carries its tail into the command that inherits it, and a command
-//! with a synchronous middleware cannot inherit a pipeline:
+//! A command inherits a pipeline's restrictions on subsequent stages. Commands
+//! with synchronous middleware cannot inherit a pipeline:
 //! ```compile_fail
 //! use fujo::Command;
 //! let shared = fujo::pipeline(()).middleware(|_, (), state, next| next.run(state));
@@ -237,7 +236,7 @@ use std::sync::PoisonError;
 use std::task::Poll;
 use std::time::Duration;
 
-/// Output, metadata, and provenance for a typed callback.
+/// Output, metadata, and value sources for a typed callback.
 #[derive(Clone, Copy)]
 pub struct Scope<'a> {
     pub out: &'a Output,
@@ -308,8 +307,8 @@ pub struct AnyTail;
 /// Later stages are synchronous.
 pub struct SyncTail;
 
-/// The remaining typed stages and the action. Calling `run` executes them once
-/// with the given state; dropping it skips them.
+/// The remaining stages and the action. Call `run` to execute them once with
+/// the given state. Drop the continuation to skip them.
 pub struct Next<'a, S> {
     run: Rc<dyn Fn(S) -> Result<()> + 'a>,
 }
@@ -318,7 +317,7 @@ impl<S> Next<'_, S> {
         (self.run)(state)
     }
 }
-/// The asynchronous counterpart of [`Next`]; await `run` at most once.
+/// The asynchronous version of [`Next`]. Await `run` at most once.
 pub struct AsyncNext<'a, S> {
     run: Continuation<'a, S>,
 }
@@ -493,8 +492,8 @@ where
     }
 }
 
-/// A chain of typed stages over a carrier: a [`Command`] awaiting its action, or
-/// `()` for a reusable [`Pipeline`].
+/// A sequence of stages attached to a [`Command`] awaiting its action, or
+/// to `()` for a reusable [`Pipeline`].
 pub struct Chain<C, I, S: 'static = (), M = AnyTail> {
     carrier: C,
     inputs: Arc<I>,
@@ -538,7 +537,7 @@ fn chain<C, I: InputSet>(carrier: C, inputs: I) -> Chain<C, I> {
     }
 }
 impl Command {
-    /// Register a complete input bundle and bind its shape to subsequent callbacks.
+    /// Register an input bundle whose values subsequent callbacks receive.
     pub fn inputs<I: InputSet>(mut self, inputs: I) -> TypedCommand<I> {
         inputs.visit(&mut |input| match input.surface {
             Surface::Flag => self.schema.flags.push(input),
@@ -570,8 +569,8 @@ impl<C, I, S: 'static, M> Chain<C, I, S, M> {
         self.state.describe(&mut stages);
         stages
     }
-    /// Label the stage declared last; `stages()` and `--explain` show the label
-    /// in place of the handler's type name.
+    /// Name the most recent stage. `stages()` and `--explain` show this name
+    /// instead of the handler's type name.
     pub fn named(self, label: &'static str) -> Chain<C, I, S, M> {
         let stage = Arc::new(Named {
             previous: self.state.clone(),
@@ -678,8 +677,8 @@ impl<C, I: InputSet, S: 'static, M> Chain<C, I, S, M> {
     }
 }
 impl<C, I: InputSet, M> Chain<C, I, (), M> {
-    /// Take a clone of the state a pipeline registered with `Cli::share` or
-    /// `Command::share` produced for this invocation.
+    /// Clone the state produced for this invocation by a pipeline registered
+    /// with `Cli::share` or `Command::share`.
     pub fn shared<G, S: Clone + Send + 'static, N>(
         self,
         pipeline: &Pipeline<G, S, N>,

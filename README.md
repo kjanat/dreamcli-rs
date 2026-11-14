@@ -1,8 +1,7 @@
 # Fujo
 
-Typed, schema-first command-line applications in Rust. Declare each input once.
-The compiler binds its native value to the handler, and the resolver fills it
-from arguments, stdin, environment variables, configuration, prompts, or a default.
+Fujo builds command-line applications in Rust. Declare inputs with their types
+and sources, then receive their resolved values in the command handler.
 
 ```rust
 use fujo::{Cli, Command, arg, flag};
@@ -24,9 +23,9 @@ fn main() -> ExitCode {
 }
 ```
 
-`name` reaches the handler as `&String` and `loud` as `&bool`. Reading an input
-the command never registered, treating a number as a string, or forgetting a
-bundle element is a compile error.
+The handler receives `name` as `&String` and `loud` as `&bool`. The compiler
+rejects access to undeclared inputs, incorrect value types, and missing tuple
+elements.
 
 ## One input, several sources
 
@@ -40,7 +39,7 @@ let region = flag::enumeration("region", ["us", "eu"])
     .default("us".to_owned());
 ```
 
-Each input independently follows one order:
+Fujo resolves each input in this order:
 
 ```text
 CLI → stdin → environment → config → prompt → default
@@ -54,14 +53,13 @@ CLI → stdin → environment → config → prompt → default
 | nothing, in a terminal                | the answer    | `prompt`       |
 | nothing, piped                        | `"us"`        | `default`      |
 
-Every source is opt-in. `ctx.sources()` records the winning stage for each input,
-and `was_explicit()` distinguishes supplied values from defaults. Resolution
-errors are collected, so several missing or invalid inputs are reported together.
+Enable each source on the input declaration. `ctx.sources()` records which source
+supplied each value. `was_explicit()` distinguishes supplied values from defaults.
+Fujo reports missing and invalid inputs together.
 
 ## Install
 
-The crates have not been published. Clone [Fujo](https://github.com/kjanat/fujo)
-and use its local crates from a sibling application:
+Clone [Fujo](https://github.com/kjanat/fujo) and use a local path dependency:
 
 ```sh
 git clone https://github.com/kjanat/fujo.git
@@ -72,19 +70,20 @@ git clone https://github.com/kjanat/fujo.git
 fujo = { path = "../fujo/crates/fujo" }
 ```
 
-Rust 1.99 or newer is required. The workspace pins its development toolchain in
-`rust-toolchain.toml`. The default build includes completion generation, native
-terminal prompts, and animated terminal activities; see [Cargo features](#cargo-features)
-for minimal builds and the opt-in `regex`, `url`, and `chrono` integrations.
+Fujo requires Rust 1.99 or newer. `rust-toolchain.toml` pins the development
+toolchain. The default build includes completions, terminal prompts, and animated
+terminal activities. See [Cargo features](#cargo-features) for smaller builds and
+the optional `regex`, `url`, and `chrono` integrations.
 
 ## Define a command
 
-`.inputs()` registers a bundle and delivers its resolved native references to
-the callback. Required/defaulted inputs become `&T`; optional inputs become
-`Option<&T>`. The initial state is `()`. Bundles can be individual inputs, nested
-tuples, or [named structs](#named-inputs), and non-Clone values are supported.
-The callback's `Scope` exposes output, metadata, and provenance; it has no
-arbitrary input or state lookup.
+`.inputs()` registers inputs and passes their resolved values to the handler.
+Required inputs and inputs with defaults become `&T`. Optional inputs become
+`Option<&T>`. The initial state is `()`.
+
+Register a single input, a nested tuple, or a [named struct](#named-inputs).
+Values can be non-Clone types. The handler's `Scope` provides output, command
+metadata, and input sources. Inputs and state arrive as separate parameters.
 
 ```rust
 use fujo::Cli;
@@ -122,9 +121,9 @@ fn main() -> ExitCode {
 }
 ```
 
-The existing dynamic API remains available through `.arg()`, `.flag()`, and
-`.action(|ctx| ...)`. Clone a handle to register its schema and move the other
-copy into that handler. `ctx.get()` infers the Rust value type and presence:
+The dynamic API uses `.arg()`, `.flag()`, and `.action(|ctx| ...)`. Clone a handle
+for registration and move the other copy into the handler. `ctx.get()` returns
+the type and optionality declared by the handle:
 
 | Input                                      | Handler value                           |
 | ------------------------------------------ | --------------------------------------- |
@@ -138,23 +137,21 @@ copy into that handler. `ctx.get()` infers the Rust value type and presence:
 | `arg::string("name").optional()`           | `Option<String>`                        |
 | `arg::string("files").variadic()`          | `Vec<String>`                           |
 
-A key/value positional can use `.variadic_entries()` to consume the remaining
-arguments into one `BTreeMap<String, T>`.
+Use `.variadic_entries()` on a key/value positional argument to collect the
+remaining arguments into a `BTreeMap<String, T>`.
 
-`get()` clones the resolved value. `get_ref()` borrows it, returning `&T` for a
-required handle and `Option<&T>` for an optional handle. This also supports custom
-types that cannot be cloned. Flags and positional arguments have distinct Rust
-types, so registering an argument with `.flag()` is a compile-time error.
+`get()` clones the value. `get_ref()` borrows it as `&T` or `Option<&T>` and
+supports non-Clone values. Flags and positional arguments have separate types,
+so passing an argument to `.flag()` fails to compile.
 
-Dynamic handles are looked up by surface and name, and state by Rust type.
-Those APIs check registration and state availability at runtime. Use `.inputs()`
-when the handler should be statically bound to its declared values and state.
+Dynamic access looks up inputs by kind and name, and state by Rust type. Fujo
+checks their availability at runtime. `.inputs()` binds the handler's parameters
+to its declarations at compile time.
 
 ## Named inputs
 
-Tuples stay compact for small commands. Larger commands declare a struct with
-`fujo::inputs!`. The macro also generates the values struct delivered to
-callbacks, so field names replace tuple positions:
+Use tuples for small commands. `fujo::inputs!` declares a struct for larger input
+sets and a second struct for the values passed to handlers:
 
 ```rust
 use fujo::{Arg, Command, Flag, Required, arg, flag};
@@ -181,22 +178,20 @@ let build = Command::new("build")
     });
 ```
 
-`Arg<T>` is required by default and `Flag<T>` is optional, matching the
-factories; `Flag<T, Required>` names a flag with a default or `.required()`. A
-field holds any bundle: a handle, a tuple, or another declared struct. The struct
-registers its inputs and fixes the callback types in one step, exactly like a
-tuple, so a handle with the wrong surface, value type, or presence is rejected
-where the struct is built. Declared bundles are `Clone`; value structs are `Copy`.
+`Arg<T>` is required by default. `Flag<T>` is optional. Use `Flag<T, Required>`
+for a flag with `.required()` or a default. Each field accepts an input handle,
+a tuple, or another input struct. The compiler checks the supplied handles
+against these field types. Input structs implement `Clone`; value structs
+implement `Copy`.
 
-`fujo::flags!` declares a flag-only struct. Register it once with
-`Cli::inputs(globals.clone())` and include it as a field of each command's
-struct to bind the same globals in every handler. A positional argument in a
-`flags!` struct is a compile error.
+`fujo::flags!` declares a struct containing only flags. Register global flags with
+`Cli::inputs(globals.clone())`, then include that struct in each command's inputs.
+The compiler rejects positional arguments in a `flags!` struct.
 
 ## Bound inputs and state
 
-Typed derives consume the previous state and return its successor. Return a
-struct or tuple containing earlier values when later stages need both:
+Each `.derive()` consumes the previous state and returns the next state. Keep
+values needed by later stages in a struct or tuple:
 
 ```rust
 use fujo::{Command, arg, flag};
@@ -210,19 +205,19 @@ let build = Command::new("build")
     });
 ```
 
-The compiler checks the input bundle's shape, native types, and the state type
-produced by the preceding derivation. State is owned per invocation and can
-contain local values such as `Rc`; it does not need Serde or `Clone`. To share
-globals, register a flag bundle with `Cli::inputs(globals.clone())` and include
-it in each leaf's `.inputs((globals, local_inputs))` bundle. This also works for
-nested commands and propagated flags. Duplicate names and cross-input policies
-remain schema/runtime validation concerns.
+The compiler checks the input types and the state passed between stages. Each
+invocation owns its state, which can contain local values such as `Rc` without
+implementing Serde or `Clone`.
+
+Register global flags with `Cli::inputs(globals.clone())` and include them in a
+command's `.inputs((globals, local_inputs))`. This also supports nested commands
+and propagated flags. Fujo checks duplicate names and rules involving multiple
+inputs when it validates the schema or runs the command.
 
 ## Typed middleware
 
-A typed command runs its stages in declaration order. A middleware is a stage:
-it receives the state from the stages before it and a continuation for every
-stage after it, including the action.
+Stages run in declaration order. Middleware receives the current state and a
+continuation for the remaining stages and action:
 
 ```rust
 use fujo::{Command, arg};
@@ -246,30 +241,33 @@ let plan = Command::new("plan")
     });
 ```
 
-`next.run(state)` hands the state on and returns the result of the later stages;
-the middleware can inspect or replace that result. Dropping `next` instead
-short-circuits the later stages and drops the state with it. A synchronous
-`.middleware()` wraps only synchronous stages: after it, `derive_async`,
-`middleware_async`, and `action_async` are unavailable, so the combination is a
-compile error. `.middleware_async()` receives an `AsyncNext` and can wrap
-either kind of stage, including earlier asynchronous derivations.
+`next.run(state)` runs the remaining stages and returns their result. Middleware
+can inspect or replace that result. Dropping `next` skips those stages and drops
+the state.
 
-A dynamic `.middleware()` registered on the `Command` before `.inputs()` wraps
-the whole typed pipeline, including derivation, and sees only `Context`.
+Synchronous `.middleware()` requires all later stages to be synchronous. The
+compiler rejects a later `derive_async`, `middleware_async`, or `action_async`.
+`.middleware_async()` receives an `AsyncNext`, can wrap either kind of stage,
+and can follow asynchronous derivations.
 
-Smaller stages cover the common shapes. `tap` borrows the state and passes it
-on, and its error short-circuits; `map` transforms the state without a scope;
-`catch` sees the error of every later stage and may replace it; `finally`
-observes the outcome after everything else ran. `tap_async` is the asynchronous
-tap. `catch` and `finally` keep the tail type, so they fit before asynchronous
-stages.
+Dynamic middleware registered before `.inputs()` wraps the whole typed command,
+including its derivations, and receives a `Context`.
+
+Several methods handle common middleware tasks:
+
+- `tap` borrows the state and passes it on. An error stops execution.
+- `map` transforms the state without a scope.
+- `catch` receives errors from later stages and can replace them.
+- `finally` receives the outcome after the remaining stages finish.
+- `tap_async` provides an asynchronous `tap`.
+
+`catch` and `finally` can precede asynchronous stages.
 
 ## Stages as values
 
-A stage is a value. A type implementing `Middleware` or `Derive` plugs in with
-`wrap` and `then`; `AsyncMiddleware` and `AsyncDerive` plug in with `wrap_async`
-and `then_async`. The implementation is generic over the input bundle, so one
-stage serves every command:
+Implement `Middleware` or `Derive` to reuse a stage with `.wrap()` or `.then()`.
+Their asynchronous equivalents use `.wrap_async()` and `.then_async()`. A stage
+generic over the input bundle can serve multiple commands:
 
 ```rust
 use fujo::typed::Next;
@@ -298,12 +296,14 @@ let plan = Command::new("plan")
     });
 ```
 
-`fujo::pipeline(inputs)` builds stages without a command. A command inherits
-them with `inherit(&pipeline)` after its own stages; the pipeline's state and
-tail become the command's, so a pipeline with a synchronous middleware keeps
-later asynchronous stages out at compile time. `inherit` registers the
-pipeline's inputs on the command. `named("label")` labels the stage declared
-last for `stages()` and `--explain`:
+`fujo::pipeline(inputs)` declares stages independently of a command.
+`.inherit(&pipeline)` appends them to a command and registers their inputs.
+The command takes the pipeline's resulting state and restrictions on later
+stages. A synchronous middleware in the pipeline therefore prevents later
+asynchronous stages.
+
+`.named("label")` labels the most recently declared stage for `.stages()` and
+`--explain`.
 
 ```rust
 use fujo::{Command, flag};
@@ -319,14 +319,14 @@ let show = Command::new("show")
     });
 ```
 
-A pipeline can also run once at the root or on a group, before dispatch.
-`Cli::share(&pipeline)` or `Command::share(&pipeline)` runs it for every
-invocation; a command takes its state with `.shared(&pipeline)` as its first
-stage, or anywhere with `ctx.shared(&pipeline)?`. Each read clones the value,
-so it must be `Clone + Send`. `share` takes flag-only pipelines and registers
-their flags on the root or group, and a group's shared flags reach its children.
-A shared pipeline wraps only itself; use `inherit` when its middleware should
-wrap the command.
+Use `Cli::share(&pipeline)` or `Command::share(&pipeline)` to run a pipeline once
+at the root or a command group, before dispatch. A command reads its result with
+`.shared(&pipeline)` as its first stage, or with `ctx.shared(&pipeline)?` from a
+handler. Each read clones the state, which must implement `Clone + Send`.
+
+Shared pipelines accept only flags. Fujo registers them on the root or group,
+and group flags reach child commands. Shared middleware wraps its own pipeline.
+Use `inherit` to wrap the command's stages too.
 
 ```rust
 use fujo::{Cli, Command, flag};
@@ -343,27 +343,29 @@ let show = Command::new("show")
 let app = Cli::new("demo").share(&session).command(show);
 ```
 
-`retry(n)` reruns every later stage and the action up to `n` more times with a
-clone of the state. `timeout(limit, sleep)` fails with `TIMEOUT` and drops the
-later stages when the application's timer finishes first, for example
-`timeout(Duration::from_secs(30), tokio::time::sleep)`. A `timeout` declared
-before `retry` bounds all attempts together; one declared after it bounds each
-attempt.
+`.retry(n)` reruns the remaining stages and action up to `n` more times after a
+failure, cloning the state for each attempt.
 
-`Command::stages()` lists dynamic steps, then typed stages, in execution order
-with their kind, handler label, and whether they are asynchronous;
-`Command::action_info()` names the action and whether its handler is
-asynchronous. With `Builtins { explain: true, .. }`, `<command> --explain`
-prints the shared stages of the root and the groups on the path, then the
-command's stages and action, and runs nothing; `--json` prints it as a document.
+`.timeout(limit, sleep)` returns `TIMEOUT` and drops the remaining stages if the
+application's timer finishes first. For example, use
+`timeout(Duration::from_secs(30), tokio::time::sleep)`. A timeout before `retry`
+covers all attempts. A timeout after `retry` applies to each attempt.
+
+`Command::stages()` lists dynamic steps followed by typed stages in execution
+order, with their kinds, handler labels, and async status. `Command::action_info()`
+describes the action handler.
+
+Enable `Builtins { explain: true, .. }` to inspect execution with
+`<command> --explain`. It lists the root and group pipelines, command stages,
+and action without running them. Add `--json` for JSON output.
 
 ## Native values
 
-`flag::parse::<T>()` and `arg::parse::<T>()` accept any `FromStr` type whose value
-is `Send + Sync + 'static`. Integer types, application enums, identifiers, and
-other custom values can remain native throughout handler execution. Custom types
-do not need Serde. `.choices(["us", "eu"])` adds accepted textual choices to
-such a parser, including help and completions.
+`flag::parse::<T>()` and `arg::parse::<T>()` accept `FromStr` types that implement
+`Send + Sync + 'static`. Handlers receive those Rust values directly, including
+integers, application enums, and custom identifiers. Serde is optional for these
+types. `.choices(["us", "eu"])` restricts accepted text and adds choices to help
+and completions.
 
 | Factory                      | Rust value                                                            |
 | ---------------------------- | --------------------------------------------------------------------- |
@@ -379,15 +381,15 @@ such a parser, including help and completions.
 | `key_value` / `key_value_of` | `BTreeMap<String, T>`                                                 |
 | `array`                      | `Vec<T>`                                                              |
 
-Strings support non-empty and length constraints; feature `regex` adds Rust
-regex constraints through `.pattern()`. `.validate()` adds
-a validator over the actual Rust value. `flag::custom()` and `arg::custom()` accept
-an explicit decoder for applications that need structured config or prompt
-values. `.sensitive()` hides values from framework diagnostics, debug output,
-help defaults, and exported schema defaults; handlers can still access them.
+Strings support non-empty and length checks. Enable `regex` to use `.pattern()`.
+`.validate()` checks the Rust value. `flag::custom()` and `arg::custom()` accept
+decoders for structured configuration or prompt answers.
 
-Collections take a reusable value parser, which has no environment, config,
-prompt, alias, or default bindings. Attach those settings to the collection:
+`.sensitive()` redacts values in framework diagnostics, debug output, help
+defaults, and exported schema defaults. Handlers receive the full value.
+
+Collections use a `ValueParser<T>` for their elements. Attach sources, aliases,
+and defaults to the collection itself:
 
 ```rust
 use fujo::{flag, value};
@@ -398,55 +400,56 @@ let label = tag.flag("label");
 let name = value::string().arg("name");
 ```
 
-Scalar inputs do not expose collection splitting or uniqueness methods. Schema
-metadata is readable through `schema()` and immutable outside core.
+Splitting and uniqueness methods are available on collection inputs. `schema()`
+exposes declaration metadata, which only the core crate can modify.
 
 `parse::<T>()` exports JSON values and defaults for common primitive types.
-Application types can supply `.encode_json(|value| ...)` and
-`.json_schema(json!({ ... }))` without implementing Serde. Encoding works for
-collection elements too. `.default_description("auto")` or `.hide_default()`
-changes the help annotation while retaining the machine-readable default;
-calling `.default()` again resets the annotation.
+Custom types can provide `.encode_json(|value| ...)` and
+`.json_schema(json!({ ... }))`. These also work for collection elements.
+
+`.default_description("auto")` and `.hide_default()` change how help displays
+the default while preserving its exported value. Calling `.default()` again
+resets that display setting.
 
 ## Resolve values
 
-Conditional `.interactive()` callbacks receive all values resolved through config
-before prompts and defaults. Use `inputs.peek(&handle)` to inspect an input that
+`.interactive()` callbacks receive values resolved through the configuration
+stage, before prompts and defaults. `inputs.peek(&handle)` reads an input that
 may still be absent.
 
-Input and confirmation prompts support `.default(...)`. Blank input without a
-prompt default falls through to the input's default or missing-value handling.
-Blank confirmation defaults to `true`, or the configured boolean default.
-`Prompt::input(...).validate(...)` checks typed answers; terminal prompts retry
-invalid answers, and scripted prompts retry while answers remain, then fall
-through. Prompt defaults bypass that answer validator. Cancellation stops the
-invocation with exit code 130.
+Input and confirmation prompts accept `.default(...)`. Blank input without a
+prompt default falls back to the input's default or missing-value handling.
+Blank confirmation uses its configured default, or `true`.
 
-`.stdin()` selects piped input for a missing value or an explicit `-`. An explicit
-dash keeps CLI precedence and records that its bytes came from stdin. Stdin is
-read once, only when the selected invocation needs it. `StdinBinding` configures
-dash/missing triggers, one-terminator trimming, and exclusive or broadcast use.
-Collections splice stdin values into the order of CLI occurrences. Splitting is
-configured separately for CLI, environment, and stdin; JSON object splitting is
-available for key/value collections.
+`Prompt::input(...).validate(...)` checks answers. Terminal prompts retry invalid
+answers. Scripted prompts retry until their answers run out, then fall back.
+Prompt defaults bypass the answer validator. Cancellation exits with code 130.
 
-`.separator(',')` accepts a single character. For longer delimiters, use
-`.separator(fujo::delimiter!("::"))`. The macro rejects empty strings at compile
-time. For a runtime string, use `schema::Delimiter::try_from(text)?`.
-`Split::Delimiter(fujo::delimiter!(", "))` also works with `.split_cli()`,
+`.stdin()` reads piped input for a missing value or an explicit `-`. An explicit
+`-` keeps CLI precedence while recording stdin as the byte source. Fujo reads
+stdin once, when the selected command needs it.
+
+`StdinBinding` controls explicit-dash and missing-value triggers, removal of one
+trailing terminator, and exclusive or broadcast use. Collections insert stdin
+values at the corresponding CLI position. Configure splitting separately for
+CLI, environment, and stdin. Key/value collections also accept JSON objects.
+
+`.separator(',')` takes one character. Use `.separator(fujo::delimiter!("::"))`
+for a longer delimiter. The macro rejects empty strings at compile time.
+`schema::Delimiter::try_from(text)?` validates a runtime string.
+`Split::Delimiter(fujo::delimiter!(", "))` works with `.split_cli()`,
 `.split_env()`, and `.split_stdin()`.
 
 ## Commands and application state
 
 Register commands with `Cli::command()`, nest them with `group(...).command(...)`,
-and add a single-command entrypoint with `.default()`. CLI `.flag()` inputs are
-global. A command-level flag can use `.propagate()` to reach descendants.
-Command dispatch skips flag operands, so a value matching a command name is
-still a value.
+and select a single-command entry point with `.default()`. Flags registered on
+`Cli` are global. `.propagate()` makes a command's flag available to descendants.
+Dispatch treats flag operands as values even when they match a command name.
 
-Dynamic middleware receives `Next`, which can be consumed once with `next.run(ctx)`
-or dropped to stop the chain. In the dynamic API, `.derive()` computes native
-state from resolved inputs and `.state::<T>()` retrieves it by Rust type identity.
+Dynamic middleware receives a `Next`. Call `next.run(ctx)` once to continue or
+drop it to stop execution. Dynamic `.derive()` builds state from resolved inputs;
+`ctx.state::<T>()` retrieves it by Rust type.
 
 ```rust
 use fujo::{Command, CliError};
@@ -470,13 +473,13 @@ let command = Command::new("deploy")
     });
 ```
 
-Plugin hooks are methods on the `Plugin` trait: before parsing, before execution,
-after execution, and on error.
+The `Plugin` trait provides hooks before parsing, before execution, after
+execution, and on error.
 
 ## Async execution
 
-Use native async closures with `.action_async()`, `.derive_async()`, and
-`.middleware_async()`. Both dynamic and bound handlers support async execution:
+Both dynamic and typed handlers accept native async closures through
+`.action_async()`, `.derive_async()`, and `.middleware_async()`:
 
 ```rust
 use fujo::{Cli, Command, flag};
@@ -494,52 +497,56 @@ let app = Cli::new("demo").default(command);
 // Return app.run_async().await from an async main for native stdio.
 ```
 
-`execute_async`, `run_with_async`, `run_os_with_async`, and `run_async` share
-preparation and result handling with their synchronous counterparts. The library
-selects no executor. Futures are local and may borrow native inputs or hold
-non-Send state across suspension; await them directly or use a local task set.
-They cannot be passed to a Send-only spawn API. Callback captures remain
-`Send + Sync + 'static`. Prompts, config, filesystem preparation, and stdio remain
-synchronous. The [async build](crates/fujo/examples/async_build.rs) and
-[manifest](crates/fujo/examples/manifest.rs) examples use Tokio as an
-application dependency; Tokio is not a library dependency.
+`execute_async`, `run_with_async`, `run_os_with_async`, and `run_async` use the
+same preparation and result handling as the synchronous runners. The application
+provides the executor.
 
-Dynamic async middleware consumes `AsyncNext` and awaits `next.run(ctx)`. It can
-wrap sync actions, sync derives, or a fully synchronous middleware tail. A sync
-middleware cannot wrap async work; use `middleware_async` for that wrapper.
-Such dynamic combinations fail with `ASYNC_MIDDLEWARE_REQUIRED` before execute
-hooks or middleware run; typed commands reject them at compile time. Sync
-runners reject async work with `ASYNC_REQUIRED`; help, version, and completions
-remain available synchronously. Dropping a suspended invocation drops its state
-and activity guards.
+Invocation futures can borrow inputs and hold non-Send state across awaits.
+Await them directly or run them in a local task set. Callback captures must
+still implement `Send + Sync + 'static`. Configuration, prompts, filesystem
+preparation, and stdio use synchronous operations. The
+[async build](crates/fujo/examples/async_build.rs) and
+[manifest](crates/fujo/examples/manifest.rs) examples use Tokio in the application.
+Fujo has no runtime dependency on Tokio.
+
+Dynamic async middleware awaits `next.run(ctx)`. It can wrap synchronous or
+asynchronous work. Dynamic synchronous middleware wrapping async work fails with
+`ASYNC_MIDDLEWARE_REQUIRED` before execution hooks or middleware run. Typed
+commands reject that combination at compile time.
+
+Synchronous runners reject async work with `ASYNC_REQUIRED`. They can still
+serve help, version, and completions. Dropping a suspended invocation drops its
+state and activity guards.
 
 ## Output, help, and completion
 
-Handlers use `ctx.out` for logs, status messages, JSON, tables, color, spinners,
-and progress. JSON mode reserves stdout for structured data; human messages go
-to stderr. Quiet mode suppresses info and status while retaining logs, warnings,
-and errors. TTY spinners animate every 80 ms while handlers work; progress handles
-draw a bar, percentage, and item count on each update. Logs and tables temporarily
-clear the shared activity line, then restore it. Finishing or dropping a spinner
-stops and joins its timer. Activities are silent when piped or in JSON/quiet mode.
-Captures retain messages and completion lines, excluding transient frames and
-cursor controls; `events()` records logical activity lifecycles. Capture-only
-outputs have no timer. Writer failures propagate to the run result.
+`ctx.out` writes logs, status messages, JSON, tables, color, spinners, and progress.
+JSON mode sends structured data to stdout and human messages to stderr. Quiet
+mode suppresses info and status, while preserving logs, warnings, and errors.
 
-The [terminal example](crates/fujo/examples/README.md#live-terminal-showcase)
-shows these activities in an interactive terminal.
+TTY spinners update every 80 ms. Progress handles draw a bar, percentage, and
+item count on each update. Logs and tables clear the activity line while they
+print, then restore it. Completing or dropping a spinner stops and joins its
+timer. Piped output and JSON or quiet mode suppress activities.
 
-`--help` and optional `--version` run before input validation. `--json`, `--quiet`,
-`-q`, and help can be released to application flags with `Builtins`. Everything
-after `--` remains literal input.
+Output capture stores messages and completion lines without animation frames or
+cursor controls. `events()` records activity creation, updates, and completion.
+Capture-only output starts no timer. Writer errors reach the run result.
 
-`--help --json` writes the program definition to stdout; command help with JSON
-mode writes the selected command definition. Both paths avoid running actions
-or reading bound input sources. Help and completion choose kebab-case names only
-when the active parser accepts them. `RunOptions.help` supports alphabetical or
-declaration order and a custom comparator through `HelpOptions::sort_flags`.
+The [terminal example](crates/fujo/examples/README.md#terminal-output)
+shows spinner and progress output.
 
-Enable `.completions()` for both command and flag access:
+`--help` and the optional `--version` run before input validation. `Builtins`
+lets applications reclaim `--json`, `--quiet`, `-q`, and help flags. Everything
+after `--` is literal input.
+
+`--help --json` exports the program definition. With a command selected, it
+exports that command's definition. Neither runs actions nor reads bound input
+sources. Help and completions use kebab-case names only when the parser accepts
+them. `RunOptions.help` selects alphabetical or declaration order;
+`HelpOptions::sort_flags` accepts a custom comparator.
+
+Enable `.completions()` to add a command and flag:
 
 ```console
 mycli completions bash
@@ -547,33 +554,34 @@ mycli --completions=zsh
 mycli --completions fish
 ```
 
-The generators also support PowerShell. Calling the flag without a shell detects
-`SHELL` in native runs and falls back to Bash. Programmatic callers can use
-`completion::generate(app.schema(), Shell::Bash)`.
+PowerShell is also supported. Without a shell argument, native runs read `SHELL`
+and fall back to Bash. Applications can call
+`completion::generate(app.schema(), Shell::Bash)` directly.
 
-Values complete by type. Choices list their values, path flags and path
-arguments complete file names, and free-text values complete nothing. Words
-after `--` complete as arguments only. The Zsh script works when sourced and
-when installed as `_mycli` in `fpath`. PowerShell completes paths explicitly,
-including `--config=PATH`. On versions that reject empty completion results
-(including 7.6), nonempty text and unmatched choices are returned unchanged;
-an empty free-text value can still fall back to files. The generated script
-detects support for empty results and suppresses that fallback when supported.
+Choices complete their declared values. Paths complete file names. Free-text
+inputs provide no suggestions. After `--`, completion treats words as arguments.
+Zsh scripts work when sourced or installed as `_mycli` in `fpath`.
+
+PowerShell completes paths, including `--config=PATH`. Some versions, including
+7.6, reject empty completion results. On those versions the script returns
+nonempty text and unmatched choices unchanged; empty free-text input may fall
+back to file completion. The script detects support for empty results and uses
+it to suppress that fallback where possible.
 
 ## Configuration and testing
 
-`.config(ConfigSettings::new("mycli"))` discovers JSON config files along project
-ancestors, then user and system config directories. `--config PATH` selects one
-file explicitly and appears in help and completions. Custom format loaders accept a parser closure and file extensions.
-`cargo_manifest!()` provides compile-time Cargo package metadata.
+`.config(ConfigSettings::new("mycli"))` searches project ancestors, then user and
+system directories for JSON configuration. `--config PATH` selects a file and
+appears in help and completions. Custom loaders take a parser closure and file
+extensions. `cargo_manifest!()` supplies Cargo package metadata at compile time.
 
-Each project ancestor is checked for `.mycli.json`, `mycli.config.json`, and
-`.config/mycli.json`, nearest first. User paths include XDG locations, macOS
-Application Support, or Windows AppData; Unix system config is
-`/etc/mycli/config.json`. `ConfigSettings::base_dir` anchors the ancestor search.
-`path_loader` receives the discovered path and content for richer providers.
+At each project ancestor, Fujo checks `.mycli.json`, `mycli.config.json`, and
+`.config/mycli.json`, nearest first. User directories follow XDG, macOS
+Application Support, or Windows AppData conventions. Unix system configuration
+uses `/etc/mycli/config.json`. `ConfigSettings::base_dir` sets where the ancestor search starts.
+`path_loader` passes both the discovered path and its content to a loader.
 
-`execute()` runs in-process using only injected inputs and captures output:
+`execute()` accepts injected inputs and captures output in-process:
 
 ```rust
 use fujo::{Cli, Command, RunOptions, ResolveOptions, flag};
@@ -597,32 +605,33 @@ assert!(result.success());
 assert_eq!(result.stdout, "Ada\n");
 ```
 
-Inject `TestPrompter`, `FileSystem`, or a complete `Runtime` for other test cases.
-`testkit::run_cli(&app, ...)` preserves the complete application configuration.
-`run_command_with_builtins` lets command-only tests release builtin names.
-`Cli::definition()` exports Rust schema metadata with `format: "fujo"`
-and `version: 1`.
-`json_schema::input_schema()` describes JSON-representable resolved
-values. Opaque custom Rust values are omitted from JSON exports unless they use a
-codec with a JSON representation.
+Inject `TestPrompter`, `FileSystem`, or a complete `Runtime` for other tests.
+`testkit::run_cli(&app, ...)` keeps the application's configuration.
+`run_command_with_builtins` lets command tests reclaim builtin names.
 
-Missing filesystem capabilities are reported through `RunResult.skipped_checks`
-and `Resolved.skipped_checks`. Set `ResolveOptions.filesystem_policy` to
-`CheckPolicy::Required` to fail when declared checks cannot run, or to
-`CheckPolicy::Disabled` to opt out explicitly. The default `Available` policy
-runs injected checks and records skips. Native runs inject a filesystem.
-Use `PathChecks::file()` for existing input files and
-`PathChecks::file().allow_missing()` for output files that may be new.
-`PathChecks::directory().create()` creates a missing directory; `create` exists
-only on directory checks.
+`Cli::definition()` exports schema metadata with `format: "fujo"` and `version: 1`.
+`json_schema::input_schema()` describes resolved values that have JSON
+representations. Custom Rust values appear in JSON exports when their codec
+provides an encoding.
+
+`RunResult.skipped_checks` and `Resolved.skipped_checks` record filesystem checks
+that could not run. `ResolveOptions.filesystem_policy` controls this behavior:
+
+- `CheckPolicy::Required` fails if a declared check cannot run.
+- `CheckPolicy::Disabled` skips filesystem checks.
+- `CheckPolicy::Available`, the default, runs available checks and records skips.
+
+Native runs supply a filesystem. `PathChecks::file()` checks an existing input
+file. Add `.allow_missing()` for a new output file.
+`PathChecks::directory().create()` creates a missing directory. The `create`
+method is available only for directory checks.
 
 ## Examples
 
-The [example CLI guide](crates/fujo/examples/README.md) describes each example,
-its commands, and its tests. The [manifest example](crates/fujo/examples/manifest.rs)
-is the complete application: named input bundles, shared globals, two commands,
-typed middleware, concurrent async work, and terminal output. Build and
-validation commands are in [CONTRIBUTING.md](CONTRIBUTING.md).
+The [example CLI guide](crates/fujo/examples/README.md) lists commands and tests
+for each example. [manifest.rs](crates/fujo/examples/manifest.rs) combines named
+inputs, global flags, two commands, typed middleware, concurrent async work, and
+terminal output. See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test commands.
 
 ## Workspace crates
 
@@ -634,14 +643,13 @@ validation commands are in [CONTRIBUTING.md](CONTRIBUTING.md).
 | `fujo-complete` | Bash, Zsh, Fish, and PowerShell completion generation                        |
 | `fujo-error`    | Shared structured errors and error categories                                |
 
-The core has no process-global reads. Output depends on the shared error crate,
-so it can be used without pulling in the parser and resolver. The public crate
-re-exports the APIs applications normally need.
+Core receives environment and filesystem data through explicit inputs. Output
+depends on the error crate and works without the parser or resolver. `fujo`
+re-exports the public APIs used by applications.
 
-Fujo is a native Rust port of DreamCLI. The
-[DreamCLI TypeScript project](https://github.com/kjanat/dreamcli) remains its
-upstream behavioral reference. Port compatibility and Rust
-differences are documented in [PORTING.md](PORTING.md).
+Fujo ports the behavior of [DreamCLI](https://github.com/kjanat/dreamcli) to Rust.
+[PORTING.md](PORTING.md) describes the compatibility tests and Rust-specific
+choices.
 
 ## Cargo features
 
@@ -654,48 +662,38 @@ differences are documented in [PORTING.md](PORTING.md).
 | `url`               | No      | `flag::url()`, `arg::url()`, `value::url()`, and native `url::Url` values |
 | `chrono`            | No      | `flag::date()`, `arg::date()`, `value::date()`, and native Chrono values  |
 
-For a minimal application, or one that supplies its own prompt implementation:
+Disable default features for a minimal build or an application with its own
+prompt implementation:
 
 ```toml
 [dependencies]
 fujo = { path = "../fujo/crates/fujo", default-features = false }
 ```
 
-Add `features = ["url", "chrono"]` to enable those integrations, with or without
-defaults. Features are additive: another dependency enabling a feature enables
-it for the shared crate. Internal dependencies disable defaults and forward
-features explicitly. `fujo-core` has no default features;
-`fujo-output` defaults to `terminal-activity` and can disable it independently.
+Add `features = ["url", "chrono"]` to enable those integrations. Cargo combines
+features requested by all dependents. Internal dependencies disable defaults
+and forward features explicitly. `fujo-core` has no default features.
+`fujo-output` enables `terminal-activity` by default.
 
-Minimal builds retain input resolution, provenance, validation, middleware,
-typed and async execution, config, output capture, and JSON/tables. Injected
-`PromptEngine` implementations and `TestPrompter` work without `terminal-prompts`;
-only automatic native prompting is removed. Spinner/progress handles still
-record logical events and finish on Drop without `terminal-activity`, but emit
-no activity text or frames. Duration and byte-size parsing need no regex feature.
-Serde and `serde_json` remain mandatory because config, prompt interchange, and
-metadata use them. Definition and JSON Schema exports remain available.
+Minimal builds include input resolution, validation, middleware, typed and async
+execution, configuration, capture, JSON, and tables. `PromptEngine` and
+`TestPrompter` work without `terminal-prompts`. Without `terminal-activity`,
+spinner and progress handles still record events and finish on drop, but draw
+nothing. Duration and byte-size parsing work without `regex`.
 
-Output can also be adopted independently by a clap application or another parser:
-depend only on `fujo-output` and pass the application's writers and
-`OutputOptions` to `Output::with_writers`. That crate depends on neither core
-resolution nor completion generation. Standalone `fujo-complete` uses core
-metadata without bringing in the specialized value dependencies.
+Serde and `serde_json` are required for configuration, prompts, and metadata.
+Definition and JSON Schema exports are available in minimal builds.
+
+To use Fujo output with another parser, depend on `fujo-output` and pass writers
+and `OutputOptions` to `Output::with_writers`. `fujo-complete` can also be used
+separately and uses core metadata without the optional value integrations.
 
 ## Releases
 
-Beepboop manages the shared version of all five crates. Its preparation workflow
-applies the planned manifest changes, updates `Cargo.lock`, runs the release
-checks and tests, and submits a version PR. Merging the version PR publishes the
-release.
+Beepboop opens a version PR with manifest and lockfile updates. Merging it
+publishes the five crates after CI passes. Beepboop records each publication
+and creates a signed `v<version>` tag.
 
-The publishing workflow accepts a Beepboop execution ID, validates the approved
-commit and version, and runs the full CI suite before publishing. Beepboop
-publishes the crates in dependency order, records each outcome, and creates the
-signed `v<version>` tag after publication. Pushing a tag no longer starts a
-release.
-
-Publication uses crates.io Trusted Publishing for `kjanat/fujo` through
-`publish.yml`. Each crate needs an initial publication and a configured trusted
-publisher before this OIDC workflow can publish it. Registry bootstrap is a
-separate one-time setup.
+`publish.yml` uses crates.io Trusted Publishing. Publish each crate once with
+an API token, then configure its trusted publisher for `kjanat/fujo` and
+`publish.yml`.

@@ -8,7 +8,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-/// A future the application's executor drives on the calling thread.
+/// A future that runs on the calling thread through the application's executor.
 pub type LocalFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 pub(crate) trait AsyncAction: Send + Sync {
@@ -78,7 +78,7 @@ pub(crate) fn validate_async(steps: &[Step], action: Option<&Action>) -> Result<
     Ok(())
 }
 
-/// The remaining steps and the action; dropping it skips them.
+/// The remaining steps and the action. Drop the continuation to skip them.
 ///
 /// ```compile_fail
 /// use fujo::Command;

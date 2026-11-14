@@ -1,5 +1,5 @@
 name: Set up the workspace
-description: Install the Rust toolchain declared by the selected workspace
+description: Install the workspace's Rust toolchain and configure its cache
 inputs:
   workspace:
     description: Absolute path to the workspace directory

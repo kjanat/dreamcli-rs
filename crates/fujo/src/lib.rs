@@ -1,8 +1,8 @@
-//! Schema-first CLI construction, typed inputs, and injectable execution.
+//! Build command-line applications with typed inputs and testable execution.
 //!
-//! Defaults enable `completion`, `terminal-prompts`, and `terminal-activity`.
-//! Specialized `regex`, `url`, and `chrono` integrations are opt-in. Disabling
-//! native prompt/activity backends preserves injected prompts and logical events.
+//! Default features enable completions, terminal prompts, and terminal activities.
+//! Enable `regex`, `url`, or `chrono` to use those input types and constraints.
+//! Injected prompts and activity events work with default features disabled.
 //!
 //! ```
 //! use fujo::{cli, command, arg, flag};
@@ -19,20 +19,20 @@
 //! assert_eq!(result.stdout, "Hello, Ada!\n");
 //! ```
 //!
-//! Required and optional inputs have different accessor return types:
+//! Accessors return different types for required and optional inputs:
 //! ```compile_fail
 //! use fujo::{Resolved, flag};
 //! let optional = flag::string("name");
 //! let value: String = Resolved::default().get(&optional).unwrap();
 //! ```
 //!
-//! Flags and positional arguments also have distinct types:
+//! Flags and positional arguments have separate types:
 //! ```compile_fail
 //! use fujo::{Command, arg};
 //! let command = Command::new("demo").flag(arg::string("name"));
 //! ```
 //!
-//! Handlers read native types:
+//! Handlers receive Rust values:
 //!
 //! ```compile_fail
 //! use fujo::{Command, flag};

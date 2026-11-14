@@ -1,30 +1,23 @@
 # Example CLIs
 
-Each example keeps input declarations, validation, orchestration, and output
-selection together in one `app() -> Cli` function. Supporting domain types stay
-in the same file. `main()` calls `app().run()` or awaits `app().run_async()` using
-the application's executor. The integration tests import
-these exact definitions and execute them with injected inputs.
+Each example defines its CLI in `app() -> Cli` and keeps supporting types in the
+same file. `main()` calls `app().run()` or awaits `app().run_async()`. Tests import
+the same application and run it with injected inputs.
 
-| Example                          | CLI logic                                 | What it demonstrates                                                                                                                                                                                                  |
-| -------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [release.rs](release.rs)         | `app()` near the top; version types below | Native `Version` and `Bump`, checked version arithmetic, config/env/CLI precedence, conditional secret prompts, typed derived plans, middleware, JSON encoding without Serde on input types                           |
-| [batch.rs](batch.rs)             | `app()`; job/result types below           | Variadic checked paths, nonzero worker counts, typed priority maps, validated/deduplicated arrays, durations, bytes, global flags, collision policy, provenance, tables, and progress                                 |
-| [settings.rs](settings.rs)       | `app()` with a local command factory      | Nested commands, inherited profile, native URL/port values, production HTTPS policy, explicit stdin credentials, redaction, effective settings, provenance, and JSON Schema                                           |
-| [terminal.rs](terminal.rs)       | `app()` with a single action              | Automatic spinner animation, label changes, live progress bars, status messages during progress, verbose diagnostics, failure cleanup, tables, and JSON/quiet output                                                  |
-| [async_build.rs](async_build.rs) | `app()` with bound inputs and state       | Command-bound native values, explicit state construction, shared globals, async derives/actions/middleware, application-owned Tokio, live spinner/progress, JSON and quiet output                                     |
-| [manifest.rs](manifest.rs)       | `app()` with named bundles; helpers below | Named input structs, a shared `flags!` bundle, one scan pipeline inherited into two commands, a struct middleware, typed sync and async stages, concurrent fingerprinting under a semaphore, drift tables, exit codes |
-| [greet.rs](greet.rs)             | `app()` with one bound command            | A positional name, a boolean alias, and a native `u16` repeat count bound to one action                                                                                                                               |
-| [deploy.rs](deploy.rs)           | `app()`; the region enum below            | A native `FromStr` enum with choices, a global region flag, a sensitive token from `DEPLOY_TOKEN`, dynamic derived state, and a nested `db seed` group                                                                |
+| Example                          | Demonstrates                                                                        |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| [release.rs](release.rs)         | Version parsing, release plans, conditional credentials, and custom JSON encodings  |
+| [batch.rs](batch.rs)             | File checks, collections, limits, collision detection, tables, and progress         |
+| [settings.rs](settings.rs)       | Nested commands, global flags, configuration sources, redaction, and JSON Schema    |
+| [terminal.rs](terminal.rs)       | Spinners, progress bars, status messages, failure cleanup, and JSON or quiet output |
+| [async_build.rs](async_build.rs) | Typed inputs and state, async handlers, Tokio timers, and progress                  |
+| [manifest.rs](manifest.rs)       | Named inputs, shared pipelines, reusable middleware, and concurrent file hashing    |
+| [greet.rs](greet.rs)             | A positional argument, a boolean flag, and a repeat count                           |
+| [deploy.rs](deploy.rs)           | Enum choices, global flags, credentials, derived state, and nested commands         |
 
-These examples build release, batch, and deployment plans, inspect settings, and
-simulate work. Running them does not upload artifacts, copy/move/link files,
-contact a service, or write configuration. The manifest example writes only the
-`--out` file.
-
-The release and settings examples require the opt-in `url` integration. Cargo
-records required features for each example. The commands below retain the
-default completion and terminal features.
+The planners simulate work and return plans. The manifest example writes a file
+selected by `--out`. The release and settings examples require `url`; Cargo lists
+each example's required features. The commands below also use default features.
 
 ## Manifest fingerprinting
 
@@ -36,26 +29,25 @@ cargo run -p fujo --example manifest -- build . --out manifest.json --force --jo
 cargo run -p fujo --example manifest -- verify . --explain
 ```
 
-`build` walks the directory, skipping names in `--ignore`, fingerprints every
-file concurrently with `--jobs` workers, and writes a JSON manifest of relative
-paths, sizes, and FNV-1a digests. `verify` repeats the walk and reports changed,
-missing, and added paths as a table or JSON; drift exits with status 1 without an
-error. An existing manifest is only overwritten with `--force`.
+`build` walks a directory, skips names in `--ignore`, and hashes files with
+`--jobs` concurrent workers. It writes relative paths, sizes, and FNV-1a digests
+to JSON. `verify` repeats the scan and reports changed, missing, and added files
+as a table or JSON. Differences produce exit code 1. `--force` permits replacing
+an existing manifest.
 
-`--jobs` and `--ignore` are declared once in a `flags!` struct, registered at the
-root, and included as a field of each command's `inputs!` struct, so both
-handlers read `globals.jobs` by name. The worker semaphore is a root pipeline;
-`Cli::share` registers it, and it is built once per invocation from `--jobs`.
-Scanning is a second `fujo::pipeline`: it takes the semaphore with `shared`,
-lists files in a sync derive, and wraps every later stage in the `Timed` struct
-middleware. Each command inherits it, then adds an async derive that
-fingerprints under the semaphore while a progress bar advances, and an action.
-`build` guards the output file with a `tap` before the scan; `verify` adds a
-sync middleware after fingerprinting that prints the summary before the action
-renders the table. `manifest build . --explain` lists these stages and runs
-nothing. Environment names are
-`MANIFEST_JOBS` and `MANIFEST_IGNORE`; configuration supports `jobs`, `ignore`,
-and `manifest`.
+A shared `flags!` struct declares `--jobs` and `--ignore`. Each command includes
+it in its `inputs!` struct and reads fields such as `globals.jobs`. A root
+pipeline creates the worker semaphore once per invocation through `Cli::share`.
+
+Both commands inherit a scan pipeline. It reads the semaphore, lists files in a
+synchronous derivation, and uses `Timed` middleware to measure later stages.
+Each command then hashes files asynchronously under the semaphore and reports
+progress. `build` checks the output path with `tap` before scanning. `verify`
+prints a summary through middleware before its action renders the table.
+`--explain` lists these stages without running them.
+
+Environment bindings are `MANIFEST_JOBS` and `MANIFEST_IGNORE`. Configuration
+keys are `jobs`, `ignore`, and `manifest`.
 
 ## Typed async build
 
@@ -65,32 +57,29 @@ cargo run -p fujo --example async_build -- --profile=prod --jobs=20 --delay=150m
 cargo run -p fujo --example async_build -- --delay=0ms --jobs=2 --json
 ```
 
-The demo binds a shared profile, a native nonzero job count, and a native duration
-to its callbacks. An async derive constructs `Build`; the action receives that
-state directly. `tokio::time::sleep` yields while the output spinner ticks and
-the action advances its progress bar. Tokio is a dev dependency used by this
-example; Fujo itself selects no executor. `greet.rs` also uses bound inputs,
-and `manifest.rs` binds named structs.
+The handler receives a shared profile, a nonzero job count, and a `Duration`.
+An async derivation creates `Build` state for the action. `tokio::time::sleep`
+waits between progress updates while a spinner animates. Tokio belongs to the
+example; Fujo uses the application's executor.
 
-The release, batch, settings, and terminal examples retain the dynamic handle
-API. Their compile-time checks establish value and presence types, while handle
-registration and type-map state availability are checked at runtime. Bound
-callbacks additionally establish their declared input bundle and state shape.
+`greet` uses tuple inputs and `manifest` uses named structs. The release, batch,
+settings, and terminal examples use dynamic handles. Those handles check value
+types at compile time and registration or state availability at runtime. Typed
+callbacks also check their input bundle and state types at compile time.
 
-## Live terminal showcase
+## Terminal output
 
-Run this in an interactive terminal without `--json`:
+Run this in a terminal:
 
 ```sh
 cargo run -p fujo --example terminal
 ```
 
-Over about five seconds, the demo discovers inputs with an animated spinner,
-updates its label while checking dependencies, builds 24 simulated items with a
-live bar and percentage, and animates verification before printing a result table.
-A status message appears halfway through without overwriting the bar. Spinners
-tick every 80 ms even while the action is blocked in `thread::sleep`; the action
-does not manually draw frames.
+The demo takes about five seconds. It shows a spinner while discovering inputs,
+changes its label for dependency checks, advances a progress bar for 24 items,
+then verifies the result and prints a table. A status message appears halfway
+through. The spinner's timer draws frames every 80 ms, including while the
+action sleeps.
 
 ```sh
 cargo run -p fujo --example terminal -- --steps=40 --delay=150ms --verbose
@@ -99,38 +88,37 @@ cargo run -p fujo --example terminal -- --delay=0ms --json
 cargo run -p fujo --example terminal -- --quiet
 ```
 
-`--steps` is a native `NonZeroU16` constrained to 1–100; `--delay` is a native
-`Duration` capped at one second per item. `--fail-at` must identify an existing
-item; a simulated failure clears the bar, reports `DEMO_FAILURE`, exits 2, and
-skips the success table. `--verbose` adds diagnostics between progress updates;
-`--quiet` suppresses them along with status and animation. JSON produces a result
-array on stdout and keeps human messages on stderr. Piping suppresses animation.
+`--steps` accepts a `NonZeroU16` from 1 to 100. `--delay` accepts a `Duration` up
+to one second per item. `--fail-at` must name an existing item. A simulated
+failure clears the bar, reports `DEMO_FAILURE`, exits with code 2, and skips the
+result table.
 
-The release and batch planners finish immediately, so they usually cannot display
-multiple frames. This showcase paces simulated work over about five seconds.
-Captures omit transient frames and retain logical activity events; the Unix PTY
-check in `scripts/check-terminal.py` verifies real frame timing and terminal
-rendering.
+`--verbose` adds debug messages. `--quiet` suppresses debug, status, and animation.
+JSON mode writes a result array to stdout and human messages to stderr. Piped
+output suppresses animation.
+
+Release and batch plans finish too soon to show several animation frames.
+This demo adds delays so the animation can be inspected. Capture stores activity
+events without frames. `scripts/check-terminal.py` checks timing and rendering
+through a Unix PTY.
 
 ## Release planner
 
-Use an existing artifact. For a quick local demonstration, the workspace
-`Cargo.toml` can serve as the checked input file:
+Pass an existing artifact, such as the workspace manifest:
 
 ```sh
 cargo run -p fujo --features url --example release -- plan Cargo.toml --from=1.4.2 --bump=minor --json
 ```
 
 The result contains `current: "1.4.2"` and `next: "1.5.0"`. `Version` and `Bump`
-reach the derivation as native Rust values; neither input type implements Serde.
-The plan has its own serializable representation.
+are Rust input types without Serde implementations. The resulting plan has its
+own serializable type.
 
-Add `--publish` to include an authenticated publish step in the plan. Supply
-`SHIPYARD_TOKEN`, `--token`, or answer the secret prompt in a terminal. An absent
-credential in a noninteractive invocation produces `AUTH_REQUIRED`. Tokens never
-appear in the release plan.
+`--publish` adds an authenticated publication step to the plan. Supply a token
+through `SHIPYARD_TOKEN`, `--token`, or the terminal prompt. Missing credentials
+in a noninteractive run produce `AUTH_REQUIRED`. The plan excludes token values.
 
-The default configuration discovery uses the `shipyard` name. Example contents:
+The example searches for `shipyard` configuration:
 
 ```json
 {
@@ -142,10 +130,9 @@ The default configuration discovery uses the `shipyard` name. Example contents:
 }
 ```
 
-`SHIPYARD_VERSION` overrides `release.from`; `--from` overrides both. All registry
-URLs must use HTTPS. The version parser accepts three decimal `u32` components
-without leading zeros; it is a small A.B.C release model with checked
-increments.
+`SHIPYARD_VERSION` overrides `release.from`, and `--from` overrides both. Registry
+URLs require HTTPS. Versions contain three decimal `u32` components without
+leading zeros. Increment operations check for overflow.
 
 ## Batch planner
 
@@ -155,18 +142,17 @@ cargo run -p fujo --example batch -- plan Cargo.toml README.md \
   --tag fast,local,fast --priority README.md=20 --sources --json
 ```
 
-The result contains one job per input, a deduplicated tag list, numeric
-priorities, an 8-worker limit, a 90,000ms timeout, and a 2,097,152-byte budget.
-`--sources` includes winning-source provenance. Omit `--json` for a table.
+This produces one job per input with unique tags, numeric priorities, eight
+workers, a 90,000 ms timeout, and a 2,097,152-byte budget. `--sources` adds each
+value's source. Omit `--json` to print a table.
 
-Workers are `NonZeroU16`, constrained to 1–64. Priority values are `u16`,
-constrained to 0–100. Duplicate priority keys fail. Input files must exist;
-the output directory may be new. Inputs producing the same target name fail
-with `TARGET_COLLISION`. Path collision policy is lexical; this planning example
-does not establish file identity through symlinks or filesystem aliases.
+Workers use `NonZeroU16` from 1 to 64. Priorities use `u16` from 0 to 100, and
+priority keys must be unique. Input files must exist; the output directory can
+be new. Duplicate target names produce `TARGET_COLLISION`. Collision detection
+compares paths lexically rather than resolving symlinks or filesystem aliases.
 
-`BATCH_LABEL`, `BATCH_WORKERS`, and `BATCH_TAGS` provide environment defaults.
-The `batch` configuration supports `mode` and `workers`.
+Environment bindings are `BATCH_LABEL`, `BATCH_WORKERS`, and `BATCH_TAGS`.
+The `batch` configuration accepts `mode` and `workers`.
 
 ## Nested settings inspector
 
@@ -177,14 +163,14 @@ cargo run -p fujo --features url --example settings -- config schema
 printf '%s\n' 'example-token' | cargo run -p fujo --features url --example settings -- config show --token=- --json
 ```
 
-The first command reports effective values and their sources. The second uses
-the default development profile; adding `--profile prod` rejects HTTP with
-`HTTPS_REQUIRED`. The schema includes inherited global inputs.
+The first command reports resolved values and their sources. The second accepts
+HTTP under the default development profile. Adding `--profile prod` rejects it
+with `HTTPS_REQUIRED`. The schema command includes inherited global inputs.
 
-The explicit `--token=-` binding reads stdin once. JSON and table output show
-`[redacted]`, while derived state can check whether authentication is configured.
-Supported environment names are `SETTINGS_PROFILE`, `SETTINGS_PORT`,
-`SETTINGS_ENDPOINT`, `SETTINGS_FEATURES`, and `SETTINGS_TOKEN`.
+`--token=-` reads stdin once. Tables and JSON show `[redacted]`; derived state
+can inspect whether credentials are present. Environment bindings are
+`SETTINGS_PROFILE`, `SETTINGS_PORT`, `SETTINGS_ENDPOINT`, `SETTINGS_FEATURES`,
+and `SETTINGS_TOKEN`.
 
 Example `settings` configuration:
 
@@ -197,8 +183,8 @@ Example `settings` configuration:
 }
 ```
 
-Use `--config PATH` to select a file explicitly. Without it, each example uses
-the project/user/system discovery described in the main README.
+`--config PATH` selects a file. Otherwise the examples search project, user,
+and system directories as described in the main README.
 
 ## Greeting
 
@@ -208,8 +194,8 @@ cargo run -p fujo --example greet -- --help
 cargo run -p fujo --example greet -- completions bash
 ```
 
-`greet` binds a positional name, a `--loud`/`-l` boolean, and a native `u16`
-`--times`/`-t` count to one action and repeats the greeting `--times` times.
+`greet` takes a name, `--loud` or `-l`, and a `u16` repeat count through `--times`
+or `-t`. Its action prints the greeting that many times.
 
 ## Deployment planner
 
@@ -218,12 +204,10 @@ cargo run -p fujo --example deploy -- db seed --json
 DEPLOY_TOKEN=example-token cargo run -p fujo --example deploy -- deploy prod --region eu --json
 ```
 
-`deploy` requires a token from `--token` or `DEPLOY_TOKEN`; without one the
-derive fails with `AUTH_REQUIRED` before the action runs. `--region` is a native
-`FromStr` enum with `us` and `eu` choices, declared as a global flag and
-supplied through `DEPLOY_REGION` or the `deploy.region` config key. `db seed`
-runs without credentials. The example simulates deployment and contacts no
-service.
+`deploy` requires `--token` or `DEPLOY_TOKEN`. Missing credentials produce
+`AUTH_REQUIRED` during derivation. The global `--region` flag parses a Rust enum
+with `us` and `eu` choices. It also reads `DEPLOY_REGION` or `deploy.region`.
+`db seed` runs without credentials. Both commands simulate deployment.
 
 ## Type and behavior checks
 
@@ -235,38 +219,28 @@ cargo test -p fujo-core --doc
 cargo check -p fujo --features url --examples
 ```
 
-The handlers contain explicit native type annotations: `Version`, `Bump`,
-`NonZeroU16`, `PathBuf`, `Duration`, `Vec<PathBuf>`, and
-`BTreeMap<String, u16>`. The compiler verifies these against their input handles.
-Compile-fail doctests also reject treating native ports or paths as strings,
-assigning `Vec<u16>` to `Vec<String>`, supplying a string default to `u16`,
-mixing positional inputs with flags, and attaching binding settings to collection
-element parsers.
+Handlers annotate inputs with types such as `Version`, `Bump`, `NonZeroU16`,
+`PathBuf`, `Duration`, `Vec<PathBuf>`, and `BTreeMap<String, u16>`. Compile-fail
+doctests cover wrong value types, collection types, defaults, input kinds, and
+source bindings on element parsers.
 
-Runtime tests cover precedence, authenticated and unauthenticated release plans,
-prompt answers, credential redaction, invalid/overflowing versions, nonzero/range
-checks, file existence, target collisions, typed collections, progress events,
-nested dispatch, schema output, JSON help, and all four completion generators.
-They verify that the original input files are unchanged and the planned output
-directory is not created. Cross-input policies and filesystem facts are checked
-at runtime; the compiler enforces input value types and presence accessors.
+Runtime tests cover source precedence, credentials and redaction, prompt answers,
+invalid versions, range checks, files, collisions, collections, progress, nested
+commands, schemas, JSON help, and all four completion generators. They check that
+planners leave input files unchanged and create no output directory.
 
-Bound-input compile-fail checks also reject unrelated handle reads, undeclared
-bundle elements, wrong native value types, missing state, positional inputs
-in root globals, mismatched handles in a named struct, positional fields in a
-`flags!` struct, asynchronous stages after a synchronous typed middleware, and
-inheriting a pipeline into a command with a synchronous middleware. Async
-continuations cannot be invoked twice. Runtime tests exercise borrowed non-Clone
-inputs, local state across awaits, globals at nested command positions, failed
-derives, middleware wrapping, typed middleware ordering and short-circuits,
-struct stages reused across commands, `tap`, `map`, `catch`, `finally`,
-`retry`, `timeout`, inherited and shared pipelines, stage listings and
-`--explain`, named bundle registration, and dropped invocations.
-The manifest tests write into temporary directories and check digests, drift
-reports, overwrite guards, and CLI/env/config precedence for the shared globals.
+Typed-command doctests cover undeclared inputs, mismatched bundles, missing
+state, positional globals, invalid sync and async combinations, and reused
+continuations. Runtime tests cover borrowed non-Clone inputs, local async state,
+global flags, derivation failures, middleware order and early returns, reusable
+stages, retry and timeout behavior, inherited and shared pipelines, stage
+inspection, named bundles, and dropped invocations.
 
-Every example supports `--help`, `--help --json`, and
-`completions bash|zsh|fish|powershell`. For example:
+Manifest tests use temporary directories to check digests, differences,
+overwrite protection, and CLI, environment, and configuration precedence.
+
+All examples provide help, JSON help, and Bash, Zsh, Fish, and PowerShell
+completions:
 
 ```sh
 cargo run -p fujo --example batch -- plan --help

@@ -136,14 +136,14 @@ impl Cli {
         self.schema.flags.push(flag.typed_schema());
         self
     }
-    /// Register reusable CLI-wide flags. Include the same bundle in a command's
-    /// `.inputs((globals, locals))` to bind them to its typed handler.
+    /// Register flags for all commands. Include the same bundle in a command's
+    /// `.inputs((globals, locals))` to pass their values to its handler.
     pub fn inputs<I: crate::typed::FlagSet>(mut self, inputs: I) -> Self {
         inputs.visit(&mut |input| self.schema.flags.push(input));
         self
     }
-    /// Run a pipeline once before any command and keep its state for stages that
-    /// call `shared`. The pipeline's flags are registered CLI-wide.
+    /// Run a pipeline once before dispatch. Stages can read its state with
+    /// `shared`. All commands inherit the pipeline's flags.
     pub fn share<G: FlagSet, S: Send + 'static, M>(mut self, pipeline: &Pipeline<G, S, M>) -> Self {
         crate::typed::declare(&mut self.schema.flags, pipeline.declared());
         self.stages.extend(pipeline.stages());
@@ -264,7 +264,7 @@ impl Cli {
             None,
         )
     }
-    /// Execute asynchronous commands with injected capabilities on the caller's executor.
+    /// Execute asynchronous commands on the caller's executor using the supplied options.
     pub async fn execute_async(
         &self,
         argv: impl IntoIterator<Item = impl Into<String>>,

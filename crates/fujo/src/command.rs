@@ -28,7 +28,7 @@ pub struct Meta {
     pub command: String,
 }
 
-/// Resolved inputs, typed application state, output channel, and invocation metadata.
+/// Resolved inputs, application state, output, and invocation metadata.
 pub struct Context {
     pub inputs: Resolved,
     pub out: Output,
@@ -90,7 +90,7 @@ pub(crate) use crate::execution::Action;
 pub use crate::execution::AsyncNext;
 pub(crate) use crate::execution::Step;
 
-/// Calling `run` executes the remainder once; dropping it skips the action.
+/// Call `run` to execute the remaining steps once. Drop it to skip the action.
 pub struct Next<'a> {
     pub(crate) steps: &'a [Step],
     pub(crate) action: Option<&'a Action>,
@@ -238,8 +238,8 @@ impl Command {
         self.action = Some(Action::Async(Arc::new(action)));
         self
     }
-    /// Run a pipeline once before this command or any child and keep its state
-    /// for stages that call `shared`. The pipeline's flags propagate to children.
+    /// Run a pipeline once before this command or any child. Stages can read its
+    /// state with `shared`. Child commands inherit the pipeline's flags.
     pub fn share<G: FlagSet, S: Send + 'static, M>(mut self, pipeline: &Pipeline<G, S, M>) -> Self {
         self.declare(pipeline.declared());
         for flag in &mut self.schema.flags {

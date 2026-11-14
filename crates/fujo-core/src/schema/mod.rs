@@ -77,8 +77,8 @@ impl StdinBinding {
 
 /// A non-empty string used to split collection values.
 ///
-/// Use [`crate::delimiter!`] for compile-time checked literals, `char::into`
-/// for single characters, and `TryFrom` for strings supplied at runtime.
+/// Use [`crate::delimiter!`] to check literals at compile time, `char::into`
+/// for a single character, or `TryFrom` for strings supplied at runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct Delimiter(Cow<'static, str>);
@@ -373,8 +373,8 @@ impl InputSchema {
         self.declaration.propagate = true;
         self
     }
-    /// Same-name declarations compose only when they are unchanged clones.
-    /// Native types alone cannot establish equivalence of validators or codecs.
+    /// Declarations with the same name must be unchanged clones.
+    /// Matching types do not establish that validators or codecs are equivalent.
     pub fn conflicts_with(&self, other: &InputSchema) -> bool {
         self.name == other.name
             && (!Arc::ptr_eq(&self.identity, &other.identity)

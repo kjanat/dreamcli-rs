@@ -1,126 +1,112 @@
 # Port contract
 
-Fujo is a native Rust port of DreamCLI. The
-[DreamCLI TypeScript project](https://github.com/kjanat/dreamcli) in `../dreamcli`
-is the behavior reference, initially inspected at commit
-[`f87c1672e10b27c066524a0715bfea0f714dd5bc`](https://github.com/kjanat/dreamcli/commit/f87c1672e10b27c066524a0715bfea0f714dd5bc).
-The Rust implementation is organized by
-crate responsibilities and uses Rust types and host interfaces.
+Fujo ports [DreamCLI](https://github.com/kjanat/dreamcli) to Rust. The initial
+reference was commit
+[`f87c1672e10b27c066524a0715bfea0f714dd5bc`](https://github.com/kjanat/dreamcli/commit/f87c1672e10b27c066524a0715bfea0f714dd5bc)
+in `../dreamcli`. Fujo uses Rust types and explicit host interfaces across five
+crates.
 
 ## Preserved behavior
 
-- CLI → stdin → env → config → prompt → default precedence, for flags and args.
-- Source provenance, including CLI-selected stdin versus fallback stdin.
-- Long and short aliases, inline values, short clusters, boolean negation,
-  duplicate policies, counts, repeated arrays, key/value records, and case parity.
-- Scalar and element constraints, collection splitting, stdin splicing, and
-  validation of declared defaults.
-- Required/optional inputs, variadic positionals, nested dispatch, defaults,
-  propagation, middleware wrapping, conditional prompts, and typed derived state.
-- Root help/version priority, JSON and quiet modes, separator handling, structured
-  errors, config loading, shell completion, tables, and terminal activity lifecycle.
-- In-process execution with injectable environment, stdin, prompt answers,
-  filesystem capabilities, and output destinations.
+- Flags and arguments resolve from CLI, stdin, environment, configuration,
+  prompts, then defaults.
+- Source records distinguish explicit stdin selection from fallback stdin.
+- Parsing supports aliases, inline values, short clusters, boolean negation,
+  duplicate policies, counts, repeated arrays, key/value records, and case rules.
+- Validation covers values, collection elements, splitting, stdin insertion,
+  and declared defaults.
+- Commands support required and optional inputs, variadic arguments, nesting,
+  defaults, flag propagation, middleware, conditional prompts, and derived state.
+- Builtins provide help and version priority, JSON and quiet modes, separators,
+  structured errors, configuration, completions, tables, and terminal activities.
+- In-process execution accepts injected environment variables, stdin, prompt
+  answers, filesystem access, and output writers.
 
-The differential suite verifies 94 representative parse/resolution cases and
-11 lifecycle cases, generated from the recorded TS revision. CI runs the TS
-generators live with `--check` before testing Rust. Native integration tests
-additionally cover plugin failures, suspension, cancellation, and host behavior. This is a
-behavioral compatibility baseline; it does not certify every TypeScript test case
-or identical text formatting.
+Reference tests compare 94 parsing and resolution cases and 11 lifecycle cases
+with the recorded DreamCLI revision. CI checks the TypeScript generators before
+running the Rust comparisons. Rust integration tests also cover plugin failures,
+suspension, cancellation, and host operations. The fixtures define the tested
+compatibility scope; text layout can differ between implementations.
 
 ## Rust API choices
 
-| TypeScript surface                      | Rust surface                                                             |
-| --------------------------------------- | ------------------------------------------------------------------------ |
-| Inferred object keys                    | Bound tuples, `inputs!` structs, or named handles with distinct surfaces |
-| `undefined`                             | `Option<T>`                                                              |
-| Required/defaulted inference            | Presence marker types; `get` returns `T` or `Option<T>`                  |
-| `number`                                | `f64` for compatibility, or any native integer through `parse::<T>`      |
-| String paths                            | `PathBuf`                                                                |
-| Millisecond numbers                     | `std::time::Duration`                                                    |
-| Byte size numbers                       | `u64`, rounded and range checked                                         |
-| JavaScript `URL` / `Date`               | `url::Url` / `chrono::DateTime<Utc>`                                     |
-| Standard Schema / custom callbacks      | `FromStr`, native decoder closures, and typed validators                 |
-| Context object intersections            | Typed owned state transformations, or a dynamic type-indexed store       |
-| Runtime-specific Node/Bun/Deno adapters | `Runtime`, `FileSystem`, `ConfigReader`, `PromptEngine`, and `Write`     |
-| `package.json` discovery                | Explicit metadata or `cargo_manifest!()`                                 |
-| Process exit calls                      | Return `std::process::ExitCode` from `main`                              |
+| TypeScript API                          | Rust API                                                             |
+| --------------------------------------- | -------------------------------------------------------------------- |
+| Inferred object keys                    | Tuples, `inputs!` structs, or handles accessed with `ctx.get()`      |
+| `undefined`                             | `Option<T>`                                                          |
+| Required/defaulted inference            | Presence marker types; `get` returns `T` or `Option<T>`              |
+| `number`                                | `f64` for compatibility, or any native integer through `parse::<T>`  |
+| String paths                            | `PathBuf`                                                            |
+| Millisecond numbers                     | `std::time::Duration`                                                |
+| Byte size numbers                       | `u64`, rounded and range checked                                     |
+| JavaScript `URL` / `Date`               | `url::Url` / `chrono::DateTime<Utc>`                                 |
+| Standard Schema / custom callbacks      | `FromStr`, native decoder closures, and typed validators             |
+| Context object intersections            | Typed owned state transformations, or a dynamic type-indexed store   |
+| Runtime-specific Node/Bun/Deno adapters | `Runtime`, `FileSystem`, `ConfigReader`, `PromptEngine`, and `Write` |
+| `package.json` discovery                | Explicit metadata or `cargo_manifest!()`                             |
+| Process exit calls                      | Return `std::process::ExitCode` from `main`                          |
 
-Rust supports synchronous callbacks and native async closures, and the
-application supplies the executor; the
-[README](README.md#async-execution) states the sync/async mixing rules.
-Config, prompts, filesystem preparation, and stdio remain synchronous. Writer-backed
-TTY spinners own a small standard library timer thread; the thread stops and
-joins on completion or `Drop`, and no executor is required. Terminal prompts use line input;
-secret inputs use a native password reader.
+Applications provide an executor for async callbacks. See the
+[async execution rules](README.md#async-execution). Configuration, prompts,
+filesystem preparation, and stdio use synchronous operations. TTY spinners use a
+standard-library timer thread, which stops and joins on completion or drop.
+Terminal prompts read lines; secret prompts use a password reader.
 
-`Command::inputs` binds registered inputs to borrowed handler parameters and
-owned typed state. Its `Scope` has no arbitrary handle or type-map accessor.
-Each derive explicitly transforms its previous state; tuples or structs retain
-earlier state when needed. `inputs!` and `flags!` declare named bundles with the
-same registration step. A typed middleware receives the state at its position
-and a continuation for the later stages; a synchronous one excludes later
-asynchronous stages at compile time. Stages are values: types implementing
-`Middleware` or `Derive` plug into any command, and a `pipeline` built once is
-inherited by several commands or shared from the root. `--explain` lists a
-command's stages. Dynamic `ctx.get()` still looks up surface/name and
-checks the native type at runtime. Dynamic `ctx.state()` checks availability at
-runtime and replaces same-type values on insertion. These dynamic checks are
-distinct from the static guarantees of bound callbacks.
+`Command::inputs` connects declarations to borrowed handler parameters and owned
+state. The callback receives a `Scope` with output and metadata. Derivations
+replace the previous state; use tuples or structs to retain earlier values.
+`inputs!` and `flags!` declare named bundles with the same type checks.
 
-TS capture omits a finish event when framework cleanup follows an action error.
-Rust's activity guard emits a failed finish on Drop. The lifecycle fixture test
-explicitly asserts this stronger native cleanup behavior. TS's unanswered
-`PROMPT_CANCEL` sentinel corresponds to Rust `Answer::Skip`, which allows default
-fallback. Rust `Answer::Cancel` represents an abort and exits 130.
+Typed middleware receives state and a continuation for later stages. Synchronous
+middleware permits only synchronous later stages. `Middleware` and `Derive`
+implementations can be reused across commands. Pipelines can be inherited by
+commands or run once at the root. `--explain` lists the stages.
 
-`array()` has an empty native default. An explicit `.optional()` clears the
-default and represents absence as `None`. This follows Rust's presence types;
-the TypeScript resolver supplies empty collections even for its optional collection
-declarations.
+The dynamic API checks input and state access at runtime. `ctx.get()` looks up
+an input by kind and name, then checks its Rust type. `ctx.state()` looks up state
+by type; inserting another value of that type replaces the previous one.
 
-Collections use `ValueParser<T>` elements, declared through `value::string()`,
-`value::parse::<T>()`, and related factories. These parsers carry value constraints
-and optional encoding, while source bindings and defaults belong to the input.
-`InputSchema` exposes a read-only declaration and keeps codecs private. Collection
-splitting and uniqueness methods are restricted to the appropriate native types.
+Rust's activity guard records a failed finish when dropped after an action error.
+DreamCLI capture omits that cleanup event. The lifecycle test checks this
+difference. DreamCLI's unanswered `PROMPT_CANCEL` sentinel maps to `Answer::Skip`,
+which permits a default. `Answer::Cancel` aborts with exit code 130.
 
-Framework-generated sensitive diagnostics and debug views are redacted. Accessing
-an input inside a handler returns its full native value. `Resolved::json()` redacts
-sensitive values and omits opaque custom values, so its diagnostic representation
-does not require application types to implement Serde.
+`array()` defaults to an empty vector. `.optional()` removes that default and
+represents absence as `None`. DreamCLI supplies empty collections even for
+optional collection declarations.
 
-Common `FromStr` primitive types have automatic JSON encoding and schema metadata.
-Custom application types can opt in with `encode_json` and `json_schema`; opaque
-types remain supported. Default descriptions control help independently of the
-runtime default. JSON help uses the Rust definition format below.
+Collections use `ValueParser<T>` elements from `value::string()`,
+`value::parse::<T>()`, and related factories. Element parsers hold constraints
+and encodings. Source bindings and defaults belong to the input. `InputSchema`
+exposes declarations for reading and keeps codecs private. Collection methods
+are available only on suitable types.
 
-Filesystem checks require an injected capability during process-free execution;
-the [README](README.md#configuration-and-testing) describes the skip policies.
+Framework diagnostics redact sensitive values. Handlers receive full values.
+`Resolved::json()` redacts sensitive inputs and omits custom values without JSON
+encodings. Common `FromStr` primitives have built-in encodings and schema
+metadata. Other types can provide `encode_json` and `json_schema`. Help default
+descriptions can differ from the runtime defaults.
 
-Filesystem capabilities use `&Path`, preserving native path names without JSON
-or UTF-8 conversion. Checks apply to opaque and non-Unicode native defaults too.
-A scalar positional default becomes a one-element vector when converted with
-`.variadic()`, preserving the required/defaulted accessor guarantee.
+Process-free runs need injected filesystem access. See the
+[filesystem policies](README.md#configuration-and-testing). Filesystem interfaces
+use `&Path`, including non-Unicode paths and custom native defaults. Converting a
+positional input with `.variadic()` wraps its scalar default in a one-element
+vector and preserves required-value access.
 
 ## Optional integrations
 
-The TypeScript package ships every integration; the Rust crate gates `regex`,
-`url`, and `chrono` behind the [Cargo features](README.md#cargo-features) listed
-in the README. `scripts/check-features.py` verifies the dependency graph and
-behavior of each configuration.
+Cargo features control `regex`, `url`, and `chrono`. DreamCLI includes these
+integrations by default. See [Cargo features](README.md#cargo-features).
+`scripts/check-features.py` verifies behavior and dependencies for each build.
 
 ## Schema documents and formats
 
-The Rust definition document uses `format: "fujo"` and `version: 1`; the
-[README](README.md#configuration-and-testing) describes what it exports. It is
-not the TypeScript definition document wire format and does not reconstruct
-custom Rust types or handlers. Input schemas use JSON Schema draft 2020-12 for the JSON
-representation of supported values.
+Rust definitions use `format: "fujo"` and `version: 1`. This format describes
+Rust schema metadata rather than serializing handlers or reconstructing custom
+Rust types. It differs from DreamCLI's definition format. Input schemas use
+JSON Schema draft 2020-12 for values with JSON representations.
 
-CLI arguments must be valid UTF-8; invalid OS arguments produce a structured parse
-error. String patterns use Rust's `regex` syntax. Help and terminal formatting
-use native renderers, so spacing, wrapping, and decorative output may differ from the
-TypeScript renderers. Error categories, stable codes, exit statuses, and value
-resolution are the compatibility surfaces tested here.
+CLI arguments must be valid UTF-8. Invalid OS arguments produce a structured
+parse error. String patterns use Rust regex syntax. Native help and terminal
+renderers may differ in spacing, wrapping, and decoration. Compatibility tests
+compare error categories, stable codes, exit statuses, and resolved values.
