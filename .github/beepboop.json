@@ -29,7 +29,7 @@
         }
       },
       "promote": {
-        "publishWhen": "approved-in-beepboop",
+        "publishWhen": "version-pr-merged",
         "workflow": {
           "file": "publish.yml",
           "mode": "dispatch",

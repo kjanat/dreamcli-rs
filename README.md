@@ -686,8 +686,8 @@ metadata without bringing in the specialized value dependencies.
 
 Beepboop manages the shared version of all five crates. Its preparation workflow
 applies the planned manifest changes, updates `Cargo.lock`, runs the release
-checks and tests, and submits a version PR. Merge that PR, then approve its
-promotion in Beepboop.
+checks and tests, and submits a version PR. Merging that PR starts publication
+automatically once its checks pass, with no second approval in Beepboop.
 
 The publishing workflow accepts a Beepboop execution ID, validates the approved
 commit and version, and runs the full CI suite before publishing. Beepboop
