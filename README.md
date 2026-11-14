@@ -59,15 +59,15 @@ Fujo reports missing and invalid inputs together.
 
 ## Install
 
-Clone [Fujo](https://github.com/kjanat/fujo) and use a local path dependency:
+Add Fujo from crates.io:
 
 ```sh
-git clone https://github.com/kjanat/fujo.git
+cargo add fujo
 ```
 
 ```toml
 [dependencies]
-fujo = { path = "../fujo/crates/fujo" }
+fujo = "0.1.0"
 ```
 
 Fujo requires Rust 1.99 or newer. `rust-toolchain.toml` pins the development
@@ -667,7 +667,7 @@ prompt implementation:
 
 ```toml
 [dependencies]
-fujo = { path = "../fujo/crates/fujo", default-features = false }
+fujo = { version = "0.1.0", default-features = false }
 ```
 
 Add `features = ["url", "chrono"]` to enable those integrations. Cargo combines
