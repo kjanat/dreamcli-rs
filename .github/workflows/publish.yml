@@ -76,19 +76,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: $/.github/actions/setup
-      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
-        id: auth
       - name: Publish all crates in dependency order
         uses: kjanat/beepboop/actions/publish@v1
         with:
-          execution-id: ${{ steps.beepboop.outputs.execution-id }}
-        env: { CARGO_REGISTRY_TOKEN: "${{ steps.auth.outputs.token }}" }
+          credentials: '{"CARGO_REGISTRY_TOKEN":"crates-io"}'
       - uses: kjanat/beepboop/actions/token@v1
         id: token
         with:
-          execution-id: ${{ steps.beepboop.outputs.execution-id }}
           permission-contents: write
       - name: Tag the published version
         uses: kjanat/beepboop/actions/publish-refs@v1
-        env: { "${{ insert }}": "${{ fromJSON(steps.token.outputs.gitId || '{}') }}" }
         with: { token: "${{ steps.token.outputs.token }}" }

@@ -93,20 +93,18 @@ crate, and internal dependency requirements. It checks that the source belongs
 to `master` and matches the commit used by CI. The full CI suite, including
 packaging, must pass before publication. Publishing runs execute one at a time.
 
-`rust-lang/crates-io-auth-action` exchanges GitHub OIDC credentials for a
-short-lived crates.io token. Configure a trusted publisher for each crate:
+`actions/publish` retrieves the stored `crates-io` credential through Beepboop
+and supplies it to Cargo. The `main` stream declares the alias in
+`.github/beepboop.json`. Grant the publishing operation access after that
+configuration reaches `master`:
 
-| Setting           | Value         |
-| ----------------- | ------------- |
-| Repository owner  | `kjanat`      |
-| Repository name   | `fujo`        |
-| Workflow filename | `publish.yml` |
-| Environment       | Leave empty   |
+```sh
+beepboop secrets grant kjanat/fujo crates-io --stream main --operation promote --delivery runtime
+```
 
-New crates need an initial publication with an API token before trusted
-publishing can be configured. Publish all five from the reviewed release commit,
-then configure their trusted publishers. Keep the bootstrap token out of the
-workflow. See the [crates.io guide](https://crates.io/docs/trusted-publishing).
+The token needs permission to publish the selected crates, including new crates
+for their first release. Beepboop's signing service supplies the signed tag object
+and its tagger identity.
 
 Release validation and its tests live in `.github/actions/check-release/`.
 The composite action finds its Python files through `GITHUB_ACTION_PATH` and

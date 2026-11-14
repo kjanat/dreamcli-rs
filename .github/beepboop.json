@@ -2,6 +2,7 @@
   "$schema": "https://beepboop.kjanat.dev/schema/v1.json",
   "streams": {
     "main": {
+      "credentials": ["crates-io"],
       "packages": [
         "pkg:cargo/fujo-error",
         "pkg:cargo/fujo-core",
