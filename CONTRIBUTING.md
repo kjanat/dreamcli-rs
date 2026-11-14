@@ -86,7 +86,9 @@ and resolution.
 Beepboop prepares manifest and lockfile updates in a version PR. Merging the PR
 starts publication after its checks pass. `.github/workflows/publish.yml` accepts
 Beepboop dispatches and publishes the five crates in dependency order. After
-publication, Beepboop creates the signed `v<version>` tag.
+publication, Beepboop creates the signed `v<version>` tag and publishes the
+GitHub Release with generated notes. The operation requires both the crates
+and the GitHub Release to complete.
 
 The workflow checks the release version against the workspace, each publishable
 crate, and internal dependency requirements. It checks that the source belongs

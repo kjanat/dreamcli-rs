@@ -692,7 +692,7 @@ separately and uses core metadata without the optional value integrations.
 
 Beepboop opens a version PR with manifest and lockfile updates. Merging it
 publishes the five crates after CI passes. Beepboop records each publication
-and creates a signed `v<version>` tag.
+and creates a signed `v<version>` tag and a GitHub Release with generated notes.
 
 `publish.yml` retrieves the `crates-io` credential through Beepboop. The `promote`
 operation needs a runtime grant for that credential.

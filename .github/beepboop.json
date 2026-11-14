@@ -40,7 +40,8 @@
             "pkg:cargo/fujo-core",
             "pkg:cargo/fujo-output",
             "pkg:cargo/fujo-complete",
-            "pkg:cargo/fujo"
+            "pkg:cargo/fujo",
+            "github-release:kjanat/fujo"
           ],
           "refs": {
             "phase": "version",

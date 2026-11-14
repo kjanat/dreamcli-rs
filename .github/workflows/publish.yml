@@ -87,3 +87,5 @@ jobs:
       - name: Tag the published version
         uses: kjanat/beepboop/actions/publish-refs@v1
         with: { token: "${{ steps.token.outputs.token }}" }
+      - name: Publish the GitHub Release
+        uses: kjanat/beepboop/actions/publish-release@v1
