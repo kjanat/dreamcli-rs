@@ -4,8 +4,8 @@
 [tools]
 "github:kjanat/runner" = "0.28.0"
 
-[tools."github:kjanat/dprint"]
-version = "0.59.0-kjanat"
+[tools."github:kjanat/kprint"]
+version = "0.62.0"
 depends = ["github:tombi-toml/tombi"]
 
 [settings]
