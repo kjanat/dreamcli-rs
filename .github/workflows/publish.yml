@@ -90,5 +90,5 @@ jobs:
           permission-contents: write
       - name: Tag the published version
         uses: kjanat/beepboop/actions/publish-refs@v1
-        env: ${{ fromJSON(steps.token.outputs.gitId) }}
+        env: ${{ fromJSON(steps.token.outputs.gitId || '{}') }}
         with: { token: "${{ steps.token.outputs.token }}" }
