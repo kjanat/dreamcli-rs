@@ -1,0 +1,56 @@
+name: Prepare release
+run-name: ${{ inputs.beepboop_title || github.workflow }}
+on:
+  workflow_dispatch:
+    inputs:
+      beepboop_execution_id:
+        description: Beepboop preparation execution
+        type: string
+        required: true
+      beepboop_title:
+        description: Release title supplied by Beepboop
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: crates-io-prepare
+  cancel-in-progress: false
+defaults: { run: { shell: bash } }
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+jobs:
+  prepare:
+    name: Prepare workspace version and lockfile
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: kjanat/beepboop/actions/begin@v1
+        id: beepboop
+        with:
+          execution-id: ${{ inputs.beepboop_execution_id }}
+          stream: main
+          operation: prepare
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ fromJSON(steps.beepboop.outputs.context).sourceSha }}
+          persist-credentials: false
+      - uses: kjanat/beepboop/actions/prepare@v1
+        with:
+          mode: apply
+          context: ${{ steps.beepboop.outputs.context }}
+      - uses: $/.github/actions/setup
+      - name: Update workspace lockfile
+        run: cargo update --workspace
+      - uses: $/.github/actions/check-release
+        with: { tag: "v${{ fromJSON(steps.beepboop.outputs.context).version }}" }
+      - name: Test the prepared workspace
+        run: cargo test --workspace --locked
+      - uses: kjanat/beepboop/actions/prepare@v1
+        with:
+          mode: submit
+          context: ${{ steps.beepboop.outputs.context }}

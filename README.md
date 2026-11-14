@@ -681,3 +681,21 @@ depend only on `fujo-output` and pass the application's writers and
 `OutputOptions` to `Output::with_writers`. That crate depends on neither core
 resolution nor completion generation. Standalone `fujo-complete` uses core
 metadata without bringing in the specialized value dependencies.
+
+## Releases
+
+Beepboop manages the shared version of all five crates. Its preparation workflow
+applies the planned manifest changes, updates `Cargo.lock`, runs the release
+checks and tests, and submits a version PR. Merge that PR, then approve its
+promotion in Beepboop.
+
+The publishing workflow accepts a Beepboop execution ID, validates the approved
+commit and version, and runs the full CI suite before publishing. Beepboop
+publishes the crates in dependency order, records each outcome, and creates the
+signed `v<version>` tag after publication. Pushing a tag no longer starts a
+release.
+
+Publication uses crates.io Trusted Publishing for `kjanat/fujo` through
+`publish.yml`. Each crate needs an initial publication and a configured trusted
+publisher before this OIDC workflow can publish it. Registry bootstrap is a
+separate one-time setup.

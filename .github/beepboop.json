@@ -17,18 +17,35 @@
         "pkg:cargo/fujo-complete",
         "pkg:cargo/fujo"
       ],
-      "workflows": {
-        "publish": {
+      "prepare": {
+        "version": "manual",
+        "strategy": "managed",
+        "versionLands": "via-version-pr",
+        "versionPrMerge": "manual",
+        "workflow": {
+          "file": "prepare-release.yml",
+          "mode": "dispatch",
+          "ref": "master"
+        }
+      },
+      "promote": {
+        "publishWhen": "approved-in-beepboop",
+        "workflow": {
           "file": "publish.yml",
-          "mode": "observe",
-          "ref": "refs/tags/v*",
+          "mode": "dispatch",
+          "ref": "master",
           "publications": [
             "pkg:cargo/fujo-error",
             "pkg:cargo/fujo-core",
             "pkg:cargo/fujo-output",
             "pkg:cargo/fujo-complete",
             "pkg:cargo/fujo"
-          ]
+          ],
+          "refs": {
+            "phase": "version",
+            "prefix": "v",
+            "signed": true
+          }
         }
       }
     }
